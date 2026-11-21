@@ -141,7 +141,7 @@ export const th: Dictionary = {
     PAYMENT_REVIEW: 'ร้านกำลังตรวจสลิป',
     PAID: 'ชำระแล้ว กำลังเตรียมจัดส่ง',
     DELIVERING: 'กำลังจัดส่ง',
-    DELIVERED: 'ส่งถึงแล้ว',
+    DELIVERED: 'จัดส่งสำเร็จแล้ว',
     CANCELLED: 'ยกเลิกแล้ว',
   },
 };

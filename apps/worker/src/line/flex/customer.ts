@@ -80,9 +80,13 @@ export function statusCard(order: OrderRow, items: NamedItem[], liffId: string, 
     ...(order.shipping_fee_satang !== null ? [row('ค่าส่ง', formatTHB(order.shipping_fee_satang))] : []),
     ...(order.total_satang !== null ? [row('ยอดรวม', formatTHB(order.total_satang), true)] : []),
     ...(order.status === 'AWAITING_PAYMENT' && order.payment_expires_at ? [text(th.payWithin(bangkokHHMM(order.payment_expires_at)), { size: 'xs', color: COLORS.red })] : []),
-    ...(order.tracking_url ? [text(`ติดตาม: ${order.tracking_url}`, { size: 'xs' })] : []),
   ];
-  const footer = [button(uri(th.openOrderRoom, orderLiffUrl(liffId, order.id)))];
+  // LINE rejects the whole reply if a URI action is not http(s); both owner paths already enforce it.
+  const tracking = order.tracking_url && /^https?:\/\//i.test(order.tracking_url) ? order.tracking_url : null;
+  const footer = [
+    ...(tracking ? [button(uri(th.trackButton, tracking))] : []),
+    button(uri(th.openOrderRoom, orderLiffUrl(liffId, order.id)), tracking ? 'secondary' : 'primary'),
+  ];
   if (order.status === 'PRICE_QUOTED') footer.unshift(button(postback(th.acceptButton, postbackData({ a: 'accept', o: order.id, v: order.version }), th.acceptButton)));
   return flex(`${order.code}: ${th.status[order.status]}`, bubble(`ออเดอร์ ${order.code}`, body, footer));
 }
