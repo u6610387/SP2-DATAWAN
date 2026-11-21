@@ -198,6 +198,24 @@ export interface QuotaLogRow {
   checked_at: string;
 }
 
+/** Mirrors the `product_stock` view (sum of stock_logs.qty_delta per product). */
+export interface ProductStockRow {
+  product_id: string;
+  name_th: string;
+  unit: Unit;
+  on_hand: number;
+}
+
+export interface PushSubscriptionRow {
+  id: string;
+  owner_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  user_agent: string | null;
+  created_at: string;
+}
+
 export interface OrderEventRow {
   id: string;
   order_id: string;

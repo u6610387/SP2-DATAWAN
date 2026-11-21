@@ -10,10 +10,10 @@ import type { LineMessage } from '../line/api';
 import * as flex from '../line/flex';
 import { parseOwnerCommand, type OwnerCommand } from '../line/ownerCommands';
 import { sendPushGuarded, type GuardedPushResult } from '../line/quota';
-import { applyEvent, logEvent } from '../services/orders';
-import { allocateUnitPrices, costItems, marginFor } from '../services/pricing';
-import { addMinutes } from '../util/time';
-import { reply, withNames } from './customer';
+import { logEvent } from '../services/orders';
+import * as actions from '../services/orderActions';
+import { withNames } from '../services/itemNames';
+import { reply } from './customer';
 
 type CodedCommand = Exclude<OwnerCommand, { kind: 'list' | 'help' | 'unknown' }>;
 
@@ -50,154 +50,63 @@ async function resolveOrder(deps: Deps, cmd: CodedCommand): Promise<{ order: Ord
   return { message: th.owner.ambiguous(pool.map((o) => o.code)) };
 }
 
-async function namedItems(deps: Deps, orderId: string) {
-  const [items, products] = await Promise.all([deps.repo.getItems(orderId), deps.repo.listActiveProducts()]);
-  return withNames(items, products);
-}
-
-async function nextRound(deps: Deps, orderId: string): Promise<number> {
-  return (await deps.repo.listNegotiations(orderId)).length + 1;
-}
-
 const conflictOr = (res: { ok: false; reason: string; order: OrderRow }) =>
   res.reason === 'VERSION_CONFLICT' ? th.owner.conflict : th.owner.wrongState(res.order.code, th.status[res.order.status]);
 
-// ---------------- commands ----------------
+// ---------------- commands (business logic lives in services/orderActions.ts) ----------------
 
 async function setPrice(deps: Deps, order: OrderRow, amountSatang: number, note: string | null): Promise<LineMessage[]> {
-  if (order.status === 'NEGOTIATING') return ownerCounter(deps, order, amountSatang);
-
-  // Snapshot costs at quote time → margin.
-  const items = await deps.repo.getItems(order.id);
-  const costs = await costItems(deps, items);
-  await deps.repo.updateItemCosts(costs);
-  const costed = items.map((it) => ({ ...it, cost_satang: costs.find((c) => c.id === it.id)?.cost_satang ?? null }));
-  const margin = marginFor(amountSatang, costed);
-
-  const res = await applyEvent(deps, order, 'OWNER_SET_PRICE', 'owner', {
-    product_price_satang: amountSatang,
-    price_note: note,
-    quoted_at: deps.now().toISOString(),
-  }, { amount_satang: amountSatang, margin_satang: margin.marginSatang });
-  if (!res.ok) return [flex.ownerText(conflictOr(res))];
-  await deps.repo.insertNegotiation({
-    order_id: order.id, round: await nextRound(deps, order.id), actor: 'owner', action: 'quote',
-    amount_satang: amountSatang, margin_satang: margin.marginSatang, message: note,
-  });
-  const push = await sendPushGuarded(deps, {
-    order: res.order,
-    priority: 'P1',
-    reason: 'PRICE_READY',
-    messages: [flex.priceCard(res.order, withNames(costed, await deps.repo.listActiveProducts()), deps.cfg.LIFF_ID)],
-  });
-  return [flex.priceEcho(res.order, 'ราคา', amountSatang, costed, margin, pushNote(push))];
-}
-
-async function ownerCounter(deps: Deps, order: OrderRow, amountSatang: number): Promise<LineMessage[]> {
-  const items = await deps.repo.getItems(order.id);
-  const margin = marginFor(amountSatang, items);
-  const res = await applyEvent(deps, order, 'OWNER_COUNTER', 'owner', { product_price_satang: amountSatang, quoted_at: deps.now().toISOString() }, { amount_satang: amountSatang });
-  if (!res.ok) return [flex.ownerText(conflictOr(res))];
-  await deps.repo.insertNegotiation({
-    order_id: order.id, round: await nextRound(deps, order.id), actor: 'owner', action: 'counter',
-    amount_satang: amountSatang, margin_satang: margin.marginSatang, message: null,
-  });
-  const push = await sendPushGuarded(deps, {
-    order: res.order,
-    priority: 'P2',
-    reason: 'OWNER_COUNTER',
-    messages: [flex.priceCard(res.order, await namedItems(deps, order.id), deps.cfg.LIFF_ID, `ร้านเสนอราคาใหม่ ${formatTHB(amountSatang)}`)],
-  });
-  return [flex.priceEcho(res.order, 'เสนอใหม่', amountSatang, items, margin, pushNote(push))];
+  if (order.status === 'NEGOTIATING') {
+    const r = await actions.ownerCounter(deps, order, amountSatang);
+    if (!r.ok) return [flex.ownerText(conflictOr(r))];
+    return [flex.priceEcho(r.order, 'เสนอใหม่', amountSatang, r.items, r.margin, pushNote(r.push))];
+  }
+  const r = await actions.ownerSetPrice(deps, order, amountSatang, note);
+  if (!r.ok) return [flex.ownerText(conflictOr(r))];
+  return [flex.priceEcho(r.order, 'ราคา', amountSatang, r.items, r.margin, pushNote(r.push))];
 }
 
 async function acceptCounter(deps: Deps, order: OrderRow): Promise<LineMessage[]> {
-  const rounds = await deps.repo.listNegotiations(order.id);
-  const counter = [...rounds].reverse().find((n) => n.actor === 'customer' && n.action === 'counter');
-  if (!counter?.amount_satang) return [flex.ownerText(th.owner.noCandidate)];
-  const items = await deps.repo.getItems(order.id);
-  const margin = marginFor(counter.amount_satang, items);
-  const res = await applyEvent(deps, order, 'OWNER_ACCEPT', 'owner', { product_price_satang: counter.amount_satang }, { amount_satang: counter.amount_satang });
-  if (!res.ok) return [flex.ownerText(conflictOr(res))];
-  await deps.repo.insertNegotiation({
-    order_id: order.id, round: rounds.length + 1, actor: 'owner', action: 'accept',
-    amount_satang: counter.amount_satang, margin_satang: margin.marginSatang, message: null,
-  });
-  return [flex.priceEcho(res.order, 'รับราคา', counter.amount_satang, items, margin, `พิมพ์ "${order.code} ship <ค่าส่ง>" ต่อได้เลย`)];
+  const r = await actions.ownerAcceptCounter(deps, order);
+  if (!r.ok) {
+    if (r.reason === 'NO_CANDIDATE') return [flex.ownerText(th.owner.noCandidate)];
+    return [flex.ownerText(conflictOr(r))];
+  }
+  return [flex.priceEcho(r.order, 'รับราคา', r.amountSatang, r.items, r.margin, `พิมพ์ "${order.code} ship <ค่าส่ง>" ต่อได้เลย`)];
 }
 
 async function holdPrice(deps: Deps, order: OrderRow): Promise<LineMessage[]> {
-  const res = await applyEvent(deps, order, 'OWNER_HOLD', 'owner');
-  if (!res.ok) return [flex.ownerText(conflictOr(res))];
-  await deps.repo.insertNegotiation({
-    order_id: order.id, round: await nextRound(deps, order.id), actor: 'owner', action: 'hold',
-    amount_satang: order.product_price_satang, margin_satang: null, message: null,
-  });
-  const push = await sendPushGuarded(deps, {
-    order: res.order,
-    priority: 'P2',
-    reason: 'OWNER_HOLD',
-    messages: [flex.priceCard(res.order, await namedItems(deps, order.id), deps.cfg.LIFF_ID, 'ร้านขอยืนราคาเดิมนะคะ')],
-  });
-  return [flex.ownerText(`✅ ${order.code} ยืนราคา ${formatTHB(order.product_price_satang ?? 0)}\n${pushNote(push)}`)];
+  const r = await actions.ownerHold(deps, order);
+  if (!r.ok) return [flex.ownerText(conflictOr(r))];
+  return [flex.ownerText(`✅ ${order.code} ยืนราคา ${formatTHB(r.order.product_price_satang ?? 0)}\n${pushNote(r.push)}`)];
 }
 
 async function setShipping(deps: Deps, order: OrderRow, feeSatang: number): Promise<LineMessage[]> {
-  const res = await applyEvent(deps, order, 'OWNER_SET_SHIPPING', 'owner', {
-    shipping_fee_satang: feeSatang,
-    payment_expires_at: addMinutes(deps.now(), deps.cfg.PAYMENT_EXPIRY_MINUTES).toISOString(),
-  }, { fee_satang: feeSatang });
-  if (!res.ok) return [flex.ownerText(conflictOr(res))];
-  const [address, user] = await Promise.all([
-    res.order.address_id ? deps.repo.getAddress(res.order.address_id) : Promise.resolve(null),
-    deps.repo.getUser(res.order.user_id),
-  ]);
-  // Total + QR ready is P1: without it the customer cannot pay (shares the per-order cap with PRICE_READY).
-  const push = await sendPushGuarded(deps, { order: res.order, priority: 'P1', reason: 'TOTAL_READY', messages: [flex.totalCard(res.order, deps.cfg.LIFF_ID)] });
-  return flex.shippingEcho(push.order, flex.lalamoveCardText(push.order, address, user), pushNote(push));
+  const r = await actions.ownerSetShipping(deps, order, feeSatang);
+  if (!r.ok) return [flex.ownerText(conflictOr(r))];
+  return flex.shippingEcho(r.order, r.lalamoveCard, pushNote(r.push));
 }
 
 async function confirmPayment(deps: Deps, order: OrderRow, overrideReason: string | null): Promise<LineMessage[]> {
-  const payment = await deps.repo.latestPayment(order.id);
-  if (!payment) return [flex.ownerText(th.owner.noSlip(order.code))];
-  if (payment.check_result !== 'PASS' && !overrideReason) return [flex.ownerText(th.owner.paidNeedsPass(order.code, payment.check_result))];
-  const now = deps.now().toISOString();
-  const res = await applyEvent(deps, order, 'OWNER_CONFIRM_PAYMENT', 'owner', {
-    paid_at: now,
-    paid_confirmed_by: deps.cfg.OWNER_AUTH_USER_ID,
-  }, { payment_id: payment.id, check_result: payment.check_result, override_reason: overrideReason });
-  if (!res.ok) return [flex.ownerText(conflictOr(res))];
-  await deps.repo.updatePayment(payment.id, { confirmed_by: deps.cfg.OWNER_AUTH_USER_ID, confirmed_at: now, override_reason: overrideReason });
-  return [flex.ownerText(`✅ ${order.code} ยืนยันรับเงิน ${formatTHB(order.total_satang ?? 0)}${overrideReason ? ` (เหตุผล: ${overrideReason})` : ''}\nจองรถแล้วพิมพ์ "${order.code} track <ลิงก์>"`)];
+  const r = await actions.ownerConfirmPayment(deps, order, deps.cfg.OWNER_AUTH_USER_ID, overrideReason);
+  if (!r.ok) {
+    if (r.reason === 'NO_SLIP') return [flex.ownerText(th.owner.noSlip(order.code))];
+    if (r.reason === 'NEEDS_OVERRIDE') return [flex.ownerText(th.owner.paidNeedsPass(order.code, r.checkResult))];
+    return [flex.ownerText(conflictOr(r))];
+  }
+  return [flex.ownerText(`✅ ${order.code} ยืนยันรับเงิน ${formatTHB(r.order.total_satang ?? 0)}${overrideReason ? ` (เหตุผล: ${overrideReason})` : ''}\nจองรถแล้วพิมพ์ "${order.code} track <ลิงก์>"`)];
 }
 
 async function dispatch(deps: Deps, order: OrderRow, url: string): Promise<LineMessage[]> {
-  const res = await applyEvent(deps, order, 'OWNER_DISPATCH', 'owner', { tracking_url: url, dispatched_at: deps.now().toISOString() }, { tracking_url: url });
-  if (!res.ok) return [flex.ownerText(conflictOr(res))];
-  const push = await sendPushGuarded(deps, { order: res.order, priority: 'P1', reason: 'TRACKING_LINK', messages: [flex.dispatchedMessage(res.order)] });
-  return [flex.ownerText(`🚚 ${order.code} กำลังจัดส่ง\n${pushNote(push)}`)];
+  const r = await actions.ownerDispatch(deps, order, url);
+  if (!r.ok) return [flex.ownerText(conflictOr(r))];
+  return [flex.ownerText(`🚚 ${order.code} กำลังจัดส่ง\n${pushNote(r.push)}`)];
 }
 
 async function delivered(deps: Deps, order: OrderRow): Promise<LineMessage[]> {
-  const res = await applyEvent(deps, order, 'OWNER_DELIVERED', 'owner', { delivered_at: deps.now().toISOString() });
-  if (!res.ok) return [flex.ownerText(conflictOr(res))];
-  const items = await deps.repo.getItems(order.id);
-  // Stock out (owner action: the Delivered tap) — PROJECT_SPEC step 9.
-  await deps.repo.insertStockLogs(
-    items
-      .filter((i) => i.product_id)
-      .map((i) => ({ product_id: i.product_id!, reason: 'sale' as const, qty_delta: -(i.actual_qty ?? i.qty), order_id: order.id, created_by: deps.cfg.OWNER_AUTH_USER_ID })),
-  );
-  if (res.order.product_price_satang !== null) {
-    await deps.repo.insertPriceHistory(
-      allocateUnitPrices(res.order.product_price_satang, items)
-        .filter((a) => a.item.product_id)
-        .map((a) => ({ product_id: a.item.product_id!, kind: 'sell' as const, unit_price_satang: a.unitSatang, source: 'order' as const, user_id: order.user_id, order_id: order.id })),
-    );
-  }
-  const user = await deps.repo.getUser(order.user_id);
-  if (user?.active_order_id === order.id) await deps.repo.setActiveOrder(user.id, null);
-  return [flex.ownerText(`✅ ${order.code} ส่งถึงแล้ว | ยอดขาย ${formatTHB(res.order.total_satang ?? 0)} | ตัดสต็อก ${items.length} รายการ`)];
+  const r = await actions.ownerDelivered(deps, order, deps.cfg.OWNER_AUTH_USER_ID);
+  if (!r.ok) return [flex.ownerText(conflictOr(r))];
+  return [flex.ownerText(`✅ ${order.code} ส่งถึงแล้ว | ยอดขาย ${formatTHB(r.order.total_satang ?? 0)} | ตัดสต็อก ${r.items.length} รายการ`)];
 }
 
 async function draftNote(deps: Deps, order: OrderRow, note: string): Promise<LineMessage[]> {

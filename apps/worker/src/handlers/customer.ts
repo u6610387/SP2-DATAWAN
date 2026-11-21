@@ -9,7 +9,6 @@ import {
   formatTHB,
   th,
   type AddressSource,
-  type OrderItemRow,
   type OrderRow,
   type ProductRow,
   type UserRow,
@@ -18,10 +17,11 @@ import type { Deps } from '../deps';
 import type { LineMessage } from '../line/api';
 import * as flex from '../line/flex';
 import { applyEvent, logEvent, resolveActiveOrder } from '../services/orders';
+import * as actions from '../services/orderActions';
 import { isMapsUrl, looksLikeAddress, parseMapsLink } from '../services/location';
-import { marginFor, suggestPrice } from '../services/pricing';
+import { suggestPrice } from '../services/pricing';
 import type { NewOrderItem } from '../services/repo';
-import { checkSlip } from '../services/slipCheck';
+import { withNames } from '../services/itemNames';
 import { bangkokHHMM } from '../util/time';
 
 const PAYABLE = ['AWAITING_PAYMENT', 'PAYMENT_EXPIRED', 'PAYMENT_REVIEW'] as const;
@@ -33,14 +33,6 @@ const COUNTER_RE = /^\s*(?:ขอ\s*)?(\d{1,3}(?:,\d{3})+|\d{2,6})\s*(?:บา�
 export async function reply(deps: Deps, replyToken: string | undefined, messages: LineMessage[]): Promise<void> {
   if (!replyToken || messages.length === 0) return;
   await deps.line.reply(replyToken, messages.slice(0, 5));
-}
-
-export function withNames(items: OrderItemRow[], products: ProductRow[]): (OrderItemRow & { name?: string })[] {
-  const byId = new Map(products.map((p) => [p.id, p.name_th]));
-  return items.map((it) => {
-    const name = it.product_id ? byId.get(it.product_id) : undefined;
-    return name ? { ...it, name } : it;
-  });
 }
 
 function knownNames(user: UserRow): string[] {
@@ -220,31 +212,17 @@ async function setLocation(
 }
 
 async function acceptPrice(deps: Deps, order: OrderRow, replyToken?: string): Promise<void> {
-  const res = await applyEvent(deps, order, 'CUSTOMER_ACCEPT', 'customer');
-  if (!res.ok) return reply(deps, replyToken, [flex.textMsg(th.staleAction), await statusReply(deps, order)]);
-  const rounds = await deps.repo.listNegotiations(order.id);
-  await deps.repo.insertNegotiation({
-    order_id: order.id, round: rounds.length + 1, actor: 'customer', action: 'accept',
-    amount_satang: order.product_price_satang, margin_satang: null, message: null,
-  });
-  await deps.notifier.notify({ kind: 'ACCEPTED', orderId: order.id, code: order.code });
+  const r = await actions.customerAccept(deps, order);
+  if (!r.ok) return reply(deps, replyToken, [flex.textMsg(th.staleAction), await statusReply(deps, order)]);
   return reply(deps, replyToken, [flex.textMsg(th.accepted)]);
 }
 
 async function counterOffer(deps: Deps, order: OrderRow, amountSatang: number, replyToken?: string): Promise<void> {
-  if (order.product_price_satang !== null && amountSatang >= order.product_price_satang) {
-    return reply(deps, replyToken, [flex.textMsg(th.counterTooHigh)]);
+  const r = await actions.customerCounter(deps, order, amountSatang);
+  if (!r.ok) {
+    if (r.reason === 'COUNTER_TOO_HIGH') return reply(deps, replyToken, [flex.textMsg(th.counterTooHigh)]);
+    return reply(deps, replyToken, [await statusReply(deps, order)]);
   }
-  const items = await deps.repo.getItems(order.id);
-  const margin = marginFor(amountSatang, items);
-  const res = await applyEvent(deps, order, 'CUSTOMER_COUNTER', 'customer', {}, { amount_satang: amountSatang });
-  if (!res.ok) return reply(deps, replyToken, [await statusReply(deps, order)]);
-  const rounds = await deps.repo.listNegotiations(order.id);
-  await deps.repo.insertNegotiation({
-    order_id: order.id, round: rounds.length + 1, actor: 'customer', action: 'counter',
-    amount_satang: amountSatang, margin_satang: margin.marginSatang, message: null,
-  });
-  await deps.notifier.notify({ kind: 'COUNTER_OFFER', orderId: order.id, code: order.code, amountSatang, marginColor: margin.color });
   return reply(deps, replyToken, [flex.textMsg(th.counterReceived(formatTHB(amountSatang)))]);
 }
 
@@ -253,36 +231,11 @@ export async function processSlip(deps: Deps, order: OrderRow, messageId: string
   const mime = (['image/png', 'image/webp'].includes(content.contentType) ? content.contentType : 'image/jpeg') as 'image/jpeg';
   const path = await deps.storage.upload('slips', `${order.id}/${crypto.randomUUID()}.${mime.split('/')[1]}`, content.bytes, mime);
 
-  const r = await deps.ai.parsePaymentSlip({
-    image: { bytes: content.bytes, mimeType: mime },
-    mockOnly: { expectedTotalSatang: order.total_satang, receiverName: deps.cfg.PROMPTPAY_RECEIVER_NAME },
-  });
-  const slip = r.ok ? r.data : null;
-  if (slip && !slip.is_slip) return reply(deps, replyToken, [flex.textMsg(th.notASlip)]);
-
-  const refUsed = slip?.reference_no ? await deps.repo.referenceExists(slip.reference_no) : false;
-  const outcome = checkSlip(slip, {
-    order,
-    receiverName: deps.cfg.PROMPTPAY_RECEIVER_NAME,
-    promptpayId: deps.cfg.PROMPTPAY_ID,
-    referenceAlreadyUsed: refUsed,
-    now: deps.now(),
-  });
-  const payment = await deps.repo.insertPayment({
-    order_id: order.id,
-    slip_path: path,
-    ai_extract: slip,
-    amount_satang: slip?.amount != null ? bahtToSatang(slip.amount) : null,
-    slip_time: slip?.date_time ?? null,
-    receiver_text: slip?.receiver_name_or_id ?? null,
-    // A reused reference would violate the unique index; keep it in check_details instead.
-    reference_no: refUsed ? null : slip?.reference_no ?? null,
-    check_result: outcome.result,
-    check_details: { checks: outcome.checks, ...(refUsed ? { duplicate_reference: slip?.reference_no } : {}), ai: r.ok ? 'ok' : r.error },
-  });
-  const res = await applyEvent(deps, order, 'SLIP_UPLOADED', 'customer', {}, { payment_id: payment.id, result: outcome.result });
-  if (!res.ok) return reply(deps, replyToken, [await statusReply(deps, order)]);
-  await deps.notifier.notify({ kind: 'SLIP_UPLOADED', orderId: order.id, code: order.code, result: outcome.result });
+  const r = await actions.submitSlip(deps, order, path, content.bytes, mime);
+  if (!r.ok) {
+    if (r.reason === 'NOT_A_SLIP') return reply(deps, replyToken, [flex.textMsg(th.notASlip)]);
+    return reply(deps, replyToken, [await statusReply(deps, order)]);
+  }
   return reply(deps, replyToken, [flex.textMsg(th.slipReceived)]);
 }
 

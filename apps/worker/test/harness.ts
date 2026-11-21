@@ -1,5 +1,6 @@
 /** Test harness: real handlers + in-memory repo + fake LINE API, signed webhook events. */
 import { createAi } from '@datawan/ai';
+import type { AuthVerifier } from '../src/auth/types';
 import type { Deps } from '../src/deps';
 import { loadConfig } from '../src/env';
 import type { LineApi, LineMessage } from '../src/line/api';
@@ -10,10 +11,29 @@ import { MemoryRepo } from '../src/services/repo.memory';
 import { MemoryStorage } from '../src/services/storage';
 import { handleWebhook } from '../src/routes/webhook';
 
+/** Deterministic auth for tests: fixed token→id maps instead of calling Supabase/LINE. */
+export class FakeAuth implements AuthVerifier {
+  owners = new Map<string, string>();
+  liffUsers = new Map<string, string>();
+  async verifyOwner(token: string | null) {
+    if (!token) return null;
+    const id = this.owners.get(token);
+    return id ? { id } : null;
+  }
+  async verifyLiffUser(idToken: string | null, devUserHeader: string | null) {
+    if (devUserHeader) return { lineUserId: devUserHeader };
+    if (!idToken) return null;
+    const lineUserId = this.liffUsers.get(idToken);
+    return lineUserId ? { lineUserId } : null;
+  }
+}
+
 export const OWNER_LINE = 'Uowner0000000000000000000000000000';
 export const CUSTOMER_LINE = 'Ucustomer00000000000000000000000000';
 export const OWNER_AUTH = '11111111-1111-4111-8111-111111111111';
 export const SECRET = 'test-channel-secret';
+export const OWNER_TOKEN = 'test-owner-token';
+export const LIFF_TOKEN = 'test-liff-token';
 
 export class FakeLine implements LineApi {
   replies: { token: string; messages: LineMessage[] }[] = [];
@@ -55,8 +75,11 @@ export function makeHarness(startIso = '2027-01-14T02:20:00Z') {
   const line = new FakeLine();
   const notifier = new RecordingNotifier();
   const realtime = new RecordingBroadcaster();
+  const auth = new FakeAuth();
+  auth.owners.set(OWNER_TOKEN, OWNER_AUTH);
+  auth.liffUsers.set(LIFF_TOKEN, CUSTOMER_LINE);
   const deps: Deps = {
-    cfg, repo, line, notifier, realtime,
+    cfg, repo, line, notifier, realtime, auth,
     ai: createAi(cfg, {}, clock.now),
     storage: new MemoryStorage(),
     now: clock.now,
@@ -88,7 +111,7 @@ export function makeHarness(startIso = '2027-01-14T02:20:00Z') {
       { product_id: 'p-hoi', kind: 'cost', unit_price_satang: 15000, source: 'supplier_bill', user_id: null, order_id: null },
     ]);
   }
-  return { deps, repo, line, notifier, realtime, clock, send, customerText, ownerText, customerPostback, customerLocation, customerImage, seedCosts };
+  return { deps, repo, line, notifier, realtime, auth, clock, send, customerText, ownerText, customerPostback, customerLocation, customerImage, seedCosts };
 }
 
 /** Extract the postback `data` of the first button whose data starts with `a=<action>`. */

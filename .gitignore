@@ -5,6 +5,7 @@ node_modules/
 .dev.vars
 .wrangler/
 .next/
+*.tsbuildinfo
 dist/
 coverage/
 .DS_Store
@@ -12,3 +13,4 @@ coverage/
 eval/raw/
 eval/results/**/predictions.jsonl
 supabase/.temp/
+*.env.local

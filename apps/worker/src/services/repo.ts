@@ -15,6 +15,8 @@ import type {
   PrepType,
   PriceHistoryRow,
   ProductRow,
+  ProductStockRow,
+  PushSubscriptionRow,
   QuotaLogRow,
   StockLogRow,
   UserRow,
@@ -49,6 +51,7 @@ export type NewStockLog = Insert<StockLogRow, 'id' | 'created_at' | 'supplier_bi
 export type NewPriceHistory = Insert<PriceHistoryRow, 'id' | 'recorded_at' | 'supplier_bill_id'>;
 export type NewQuotaLog = Insert<QuotaLogRow, 'id' | 'checked_at'>;
 export type NewOrderEvent = Insert<OrderEventRow, 'id' | 'created_at' | 'from_status' | 'to_status' | 'payload'>;
+export type NewPushSubscription = Insert<PushSubscriptionRow, 'id' | 'created_at' | 'user_agent'>;
 
 export interface Repo {
   /** Returns true the first time a webhookEventId is seen (dedupe). */
@@ -68,12 +71,17 @@ export interface Repo {
   listOpenOrders(filter?: { userId?: string; statuses?: OrderStatus[] }): Promise<OrderRow[]>;
   /** Most recent DELIVERED order (B2B reorder). */
   lastDeliveredOrder(userId: string): Promise<OrderRow | null>;
+  /** DELIVERED orders with delivered_at >= sinceIso (Today's Sales Summary). */
+  listDeliveredSince(sinceIso: string): Promise<OrderRow[]>;
   /** Optimistic update: returns null when `expectedVersion` is stale. Bumps version. */
   updateOrder(id: string, expectedVersion: number, patch: OrderPatch): Promise<OrderRow | null>;
 
   getItems(orderId: string): Promise<OrderItemRow[]>;
   replaceItems(orderId: string, items: NewOrderItem[]): Promise<OrderItemRow[]>;
   updateItemCosts(updates: { id: string; cost_satang: number | null }[]): Promise<void>;
+  updateItemActualQty(updates: { id: string; actual_qty: number }[]): Promise<void>;
+  /** LIFF presence heartbeat: touches customer_last_seen_at only, no version/broadcast (ARCHITECTURE_AND_DB §1.3). */
+  touchCustomerLastSeen(orderId: string, nowIso: string): Promise<void>;
 
   insertAddress(a: NewAddress): Promise<AddressRow>;
   getAddress(id: string): Promise<AddressRow | null>;
@@ -82,6 +90,7 @@ export interface Repo {
   insertNegotiation(n: NewNegotiation): Promise<NegotiationRow>;
 
   insertPayment(p: NewPayment): Promise<PaymentRow>;
+  getPayment(id: string): Promise<PaymentRow | null>;
   latestPayment(orderId: string): Promise<PaymentRow | null>;
   updatePayment(id: string, patch: PaymentPatch): Promise<PaymentRow>;
   referenceExists(referenceNo: string): Promise<boolean>;
@@ -92,7 +101,15 @@ export interface Repo {
   lastSellUnitPrice(userId: string, productId: string, sinceIso: string): Promise<number | null>;
 
   insertStockLogs(rows: NewStockLog[]): Promise<void>;
+  /** Single stock-log insert that returns the created row (owner manual stock-in/adjust). */
+  insertStockLog(row: NewStockLog): Promise<StockLogRow>;
   insertPriceHistory(rows: NewPriceHistory[]): Promise<void>;
+  /** product_stock view: on-hand quantity per active product. */
+  listProductStock(): Promise<ProductStockRow[]>;
+
+  upsertPushSubscription(sub: NewPushSubscription): Promise<PushSubscriptionRow>;
+  listPushSubscriptions(): Promise<PushSubscriptionRow[]>;
+  deletePushSubscription(endpoint: string): Promise<void>;
 
   latestQuotaLog(month: string): Promise<QuotaLogRow | null>;
   insertQuotaLog(row: NewQuotaLog): Promise<QuotaLogRow>;

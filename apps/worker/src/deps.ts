@@ -1,5 +1,6 @@
 /** Dependency container. Production wiring in index.ts; tests build their own with fakes. */
 import type { AiService } from '@datawan/ai';
+import type { AuthVerifier } from './auth/types';
 import type { Config } from './env';
 import type { LineApi } from './line/api';
 import type { OwnerNotifier } from './services/notifier';
@@ -15,5 +16,6 @@ export interface Deps {
   notifier: OwnerNotifier;
   realtime: Broadcaster;
   storage: ImageStorage;
+  auth: AuthVerifier;
   now: () => Date;
 }

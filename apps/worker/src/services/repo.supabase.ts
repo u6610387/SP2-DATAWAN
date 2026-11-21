@@ -80,6 +80,9 @@ export class SupabaseRepo implements Repo {
       'lastDeliveredOrder',
     );
   }
+  async listDeliveredSince(sinceIso: string) {
+    return must(await this.db.from('orders').select('*').eq('status', 'DELIVERED').gte('delivered_at', sinceIso), 'listDeliveredSince');
+  }
   async updateOrder(id: string, expectedVersion: number, patch: import('@datawan/shared').OrderPatch) {
     const res = await this.db.from('orders').update(patch).eq('id', id).eq('version', expectedVersion).select('*');
     const rows = must(res, 'updateOrder') as OrderRow[];
@@ -100,6 +103,12 @@ export class SupabaseRepo implements Repo {
   async updateItemCosts(updates: { id: string; cost_satang: number | null }[]) {
     for (const u of updates) must(await this.db.from('order_items').update({ cost_satang: u.cost_satang }).eq('id', u.id), 'updateItemCost');
   }
+  async updateItemActualQty(updates: { id: string; actual_qty: number }[]) {
+    for (const u of updates) must(await this.db.from('order_items').update({ actual_qty: u.actual_qty }).eq('id', u.id), 'updateItemActualQty');
+  }
+  async touchCustomerLastSeen(orderId: string, nowIso: string) {
+    must(await this.db.from('orders').update({ customer_last_seen_at: nowIso }).eq('id', orderId), 'touchCustomerLastSeen');
+  }
 
   async insertAddress(a: import('./repo').NewAddress) {
     return must(await this.db.from('addresses').insert(a).select('*').single(), 'insertAddress');
@@ -117,6 +126,9 @@ export class SupabaseRepo implements Repo {
 
   async insertPayment(p: import('./repo').NewPayment) {
     return must(await this.db.from('payments').insert(p).select('*').single(), 'insertPayment');
+  }
+  async getPayment(id: string) {
+    return must(await this.db.from('payments').select('*').eq('id', id).maybeSingle(), 'getPayment');
   }
   async latestPayment(orderId: string) {
     return must(
@@ -159,8 +171,24 @@ export class SupabaseRepo implements Repo {
   async insertStockLogs(rows: import('./repo').NewStockLog[]) {
     if (rows.length) must(await this.db.from('stock_logs').insert(rows), 'insertStockLogs');
   }
+  async insertStockLog(row: import('./repo').NewStockLog) {
+    return must(await this.db.from('stock_logs').insert(row).select('*').single(), 'insertStockLog');
+  }
   async insertPriceHistory(rows: import('./repo').NewPriceHistory[]) {
     if (rows.length) must(await this.db.from('price_history').insert(rows), 'insertPriceHistory');
+  }
+  async listProductStock() {
+    return must(await this.db.from('product_stock').select('*').order('name_th'), 'listProductStock');
+  }
+
+  async upsertPushSubscription(sub: import('./repo').NewPushSubscription) {
+    return must(await this.db.from('push_subscriptions').upsert(sub, { onConflict: 'endpoint' }).select('*').single(), 'upsertPushSubscription');
+  }
+  async listPushSubscriptions() {
+    return must(await this.db.from('push_subscriptions').select('*'), 'listPushSubscriptions');
+  }
+  async deletePushSubscription(endpoint: string) {
+    must(await this.db.from('push_subscriptions').delete().eq('endpoint', endpoint), 'deletePushSubscription');
   }
 
   async latestQuotaLog(month: string) {

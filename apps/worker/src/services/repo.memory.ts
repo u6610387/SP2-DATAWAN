@@ -3,7 +3,7 @@
  * version bump, generated total_satang, order code assignment (0002), open-code uniqueness,
  * payments.reference_no uniqueness, and the PAID/DELIVERED guards.
  */
-import { FINAL_STATUSES, type OrderRow, type ProductRow, type UserRow } from '@datawan/shared';
+import { FINAL_STATUSES, type OrderRow, type ProductRow, type ProductStockRow, type PushSubscriptionRow, type UserRow } from '@datawan/shared';
 import type { Repo } from './repo';
 
 type Row = Record<string, unknown>;
@@ -20,6 +20,7 @@ export class MemoryRepo implements Repo {
   priceHistory: import('@datawan/shared').PriceHistoryRow[] = [];
   quotaLogs: import('@datawan/shared').QuotaLogRow[] = [];
   events: import('@datawan/shared').OrderEventRow[] = [];
+  pushSubscriptions: PushSubscriptionRow[] = [];
   lineEvents = new Set<string>();
   private seq = 0;
   private tick = 0;
@@ -123,6 +124,9 @@ export class MemoryRepo implements Repo {
       .sort((a, b) => (b.delivered_at ?? '').localeCompare(a.delivered_at ?? ''))[0];
     return o ? { ...o } : null;
   }
+  async listDeliveredSince(sinceIso: string) {
+    return this.orders.filter((o) => o.status === 'DELIVERED' && (o.delivered_at ?? '') >= sinceIso).map((o) => ({ ...o }));
+  }
   async updateOrder(id: string, expectedVersion: number, patch: import('@datawan/shared').OrderPatch) {
     const o = this.orders.find((x) => x.id === id);
     if (!o || o.version !== expectedVersion) return null;
@@ -154,6 +158,16 @@ export class MemoryRepo implements Repo {
       if (it) it.cost_satang = u.cost_satang;
     }
   }
+  async updateItemActualQty(updates: { id: string; actual_qty: number }[]) {
+    for (const u of updates) {
+      const it = this.items.find((i) => i.id === u.id);
+      if (it) it.actual_qty = u.actual_qty;
+    }
+  }
+  async touchCustomerLastSeen(orderId: string, nowIso: string) {
+    const o = this.orders.find((x) => x.id === orderId);
+    if (o) o.customer_last_seen_at = nowIso;
+  }
 
   async insertAddress(a: import('./repo').NewAddress) {
     const row = { id: this.id(), created_at: this.ts(), label: null, is_default: false, ...a };
@@ -180,6 +194,10 @@ export class MemoryRepo implements Repo {
     const row = { id: this.id(), created_at: this.ts(), confirmed_by: null, confirmed_at: null, override_reason: null, ...p };
     this.payments.push(row);
     return { ...row };
+  }
+  async getPayment(id: string) {
+    const p = this.payments.find((x) => x.id === id);
+    return p ? { ...p } : null;
   }
   async latestPayment(orderId: string) {
     const p = this.payments.filter((x) => x.order_id === orderId).sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
@@ -211,8 +229,38 @@ export class MemoryRepo implements Repo {
   async insertStockLogs(rows: import('./repo').NewStockLog[]) {
     for (const r of rows) this.stockLogs.push({ id: this.id(), created_at: this.ts(), supplier_bill_id: null, unit_cost_satang: null, note: null, ...r });
   }
+  async insertStockLog(row: import('./repo').NewStockLog) {
+    const r = { id: this.id(), created_at: this.ts(), supplier_bill_id: null, unit_cost_satang: null, note: null, ...row };
+    this.stockLogs.push(r);
+    return { ...r };
+  }
   async insertPriceHistory(rows: import('./repo').NewPriceHistory[]) {
     for (const r of rows) this.priceHistory.push({ id: this.id(), recorded_at: this.ts(), supplier_bill_id: null, ...r });
+  }
+  async listProductStock(): Promise<ProductStockRow[]> {
+    return this.products.map((p) => ({
+      product_id: p.id,
+      name_th: p.name_th,
+      unit: p.unit,
+      on_hand: this.stockLogs.filter((s) => s.product_id === p.id).reduce((a, s) => a + s.qty_delta, 0),
+    }));
+  }
+
+  async upsertPushSubscription(sub: import('./repo').NewPushSubscription) {
+    const existing = this.pushSubscriptions.find((s) => s.endpoint === sub.endpoint);
+    if (existing) {
+      Object.assign(existing, sub);
+      return { ...existing };
+    }
+    const row: PushSubscriptionRow = { id: this.id(), created_at: this.ts(), user_agent: null, ...sub };
+    this.pushSubscriptions.push(row);
+    return { ...row };
+  }
+  async listPushSubscriptions() {
+    return this.pushSubscriptions.map((s) => ({ ...s }));
+  }
+  async deletePushSubscription(endpoint: string) {
+    this.pushSubscriptions = this.pushSubscriptions.filter((s) => s.endpoint !== endpoint);
   }
 
   async latestQuotaLog(month: string) {

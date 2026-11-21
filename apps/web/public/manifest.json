@@ -1,0 +1,14 @@
+{
+  "name": "ดาทะวันซีฟู้ด — เจ้าของร้าน",
+  "short_name": "ดาทะวัน",
+  "description": "Owner dashboard for Da Tawan Seafood — sales, orders, stock, quota",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0e7490",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

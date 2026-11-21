@@ -21,8 +21,12 @@ export const ConfigSchema = z.object({
   MAX_PUSH_PER_ORDER: num(1),
   LIFF_PRESENCE_SECONDS: num(60),
   LIFF_ID: z.string().default(''),
+  LINE_LOGIN_CHANNEL_ID: z.string().default(''),
+  /** Dev-only LIFF auth bypass (x-liff-dev-user header). Verifier also requires APP_ENV==='dev'. */
+  LIFF_DEV_BYPASS: bool.default(false),
 
   SUPABASE_URL: z.string().default(''),
+  SUPABASE_ANON_KEY: z.string().default(''),
   SUPABASE_SERVICE_ROLE_KEY: z.string().default(''),
   STORAGE_RETENTION_DAYS: num(60),
   /** Supabase auth.users id of the owner — recorded as paid_confirmed_by / created_by for LINE commands. */
@@ -41,6 +45,10 @@ export const ConfigSchema = z.object({
   ABANDON_HOURS: num(24),
   DEFAULT_MARKUP: num(0.25),
   OWNER_POLITENESS: z.enum(['ค่ะ', 'ครับ']).default('ค่ะ'),
+
+  VAPID_PUBLIC_KEY: z.string().default(''),
+  VAPID_PRIVATE_KEY: z.string().default(''),
+  VAPID_SUBJECT: z.string().default('mailto:team-highlow@example.com'),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

@@ -143,6 +143,7 @@ da-tawan-seafood/
 3. LINE / LIFF / webhook work → `line-liff-architect`. Gemini work → `gemini-structured-pipeline`. Accuracy reports → `ai-eval-benchmark`.
 4. If a request would break a rule in §3, say so and propose a compliant alternative instead of implementing it.
 5. When a contract in `packages/shared/src/contracts/` must change, update `docs/API_AND_AI_CONTRACTS.md` in the same PR.
+6. **Skill priority:** our 4 project domain skills — `seafood-domain-rules`, `line-liff-architect`, `gemini-structured-pipeline`, `ai-eval-benchmark` — always take priority over general-purpose UI/workflow skills (e.g. `impeccable`, `superpowers`). If a general skill's guidance conflicts with a domain skill on this project, the domain skill wins.
 
 ---
 

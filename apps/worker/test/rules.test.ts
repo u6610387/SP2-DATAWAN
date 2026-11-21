@@ -29,8 +29,19 @@ describe('repo rules', () => {
       .map((f) => f.path);
     expect(offenders).toEqual([]);
   });
-  it('§3.1 paid_confirmed_by is only set from the owner config', () => {
+  it('§3.1 paid_confirmed_by is only written by ownerConfirmPayment(), from an ownerId parameter', () => {
+    // The single write site takes `ownerId` as a parameter — it is never a literal, and never
+    // read from deps.cfg directly there, so it can't silently become an AI/system value.
     const sets = src.filter((f) => !f.path.endsWith('db.ts') && !f.path.includes('repo.')).flatMap((f) => [...f.text.matchAll(/paid_confirmed_by:\s*([^,\n}]+)/g)].map((m) => `${f.path}: ${m[1]!.trim()}`));
-    expect(sets).toEqual(['apps/worker/src/handlers/owner.ts: deps.cfg.OWNER_AUTH_USER_ID']);
+    expect(sets).toEqual(['apps/worker/src/services/orderActions.ts: ownerId']);
+
+    // Every caller of ownerConfirmPayment must supply an owner-authenticated id: the LINE
+    // command's configured owner (handlers/owner.ts), or the REST route's verified Supabase
+    // user (routes/owner.ts) — never a literal, never anything from packages/ai.
+    const callers = src.flatMap((f) => [...f.text.matchAll(/ownerConfirmPayment\(deps,\s*order,\s*([^,]+),/g)].map((m) => `${f.path}: ${m[1]!.trim()}`));
+    for (const c of callers) {
+      expect(c.startsWith('apps/worker/src/handlers/owner.ts:') || c.startsWith('apps/worker/src/routes/owner.ts:')).toBe(true);
+    }
+    expect(callers.length).toBeGreaterThan(0);
   });
 });
