@@ -80,7 +80,7 @@ describe('owner commands', () => {
     expect(h.line.pushes).toHaveLength(0);
     expect(h.line.lastReplyText()).toContain('900 บาท');
     const send = findPostback(h.line.lastReply(), 'note_send');
-    await h.send('Uowner0000000000000000000000000000', { type: 'postback', postback: { data: send } });
+    await h.send('U00000000000000000000000000000a11', { type: 'postback', postback: { data: send } });
     expect(h.line.pushes).toHaveLength(1);
     expect(h.repo.events.some((e) => e.event === 'NOTE_APPROVED' && e.actor === 'owner')).toBe(true);
   });

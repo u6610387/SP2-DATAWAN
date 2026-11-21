@@ -14,7 +14,14 @@ export const ConfigSchema = z.object({
 
   LINE_CHANNEL_SECRET: z.string().min(1),
   LINE_CHANNEL_ACCESS_TOKEN: z.string().min(1),
-  LINE_OWNER_USER_ID: z.string().min(1),
+  /**
+   * One or more owner LINE userIds, comma-separated (e.g. owner + co-owner phone).
+   * Parsed to a de-duplicated array; every listed ID is routed to the owner command handler.
+   */
+  LINE_OWNER_USER_ID: z
+    .string()
+    .transform((v) => [...new Set(v.split(',').map((s) => s.trim()).filter(Boolean))])
+    .pipe(z.array(z.string().regex(/^U[0-9a-f]{32}$/, 'LINE userId must be U + 32 hex chars')).min(1)),
   LINE_PUSH_MONTHLY_LIMIT: num(300),
   QUOTA_WARN_RATIO: num(0.8),
   QUOTA_SAVER_RATIO: num(0.95),
@@ -55,6 +62,11 @@ export type Config = z.infer<typeof ConfigSchema>;
 
 /** Raw bindings as Wrangler provides them (vars + secrets are strings). */
 export type Bindings = Record<string, string | undefined>;
+
+/** True when `userId` is one of the configured owner LINE accounts. */
+export function isOwnerLineUser(cfg: Pick<Config, 'LINE_OWNER_USER_ID'>, userId: string | undefined): boolean {
+  return !!userId && cfg.LINE_OWNER_USER_ID.includes(userId);
+}
 
 export function loadConfig(env: Bindings): Config {
   const parsed = ConfigSchema.safeParse(env);
