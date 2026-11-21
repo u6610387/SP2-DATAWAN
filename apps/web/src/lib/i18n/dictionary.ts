@@ -70,6 +70,8 @@ export interface Dictionary {
     shippingTitle: string;
     shippingPlaceholder: string;
     confirmShipping: string;
+    shippingCorrectTitle: string;
+    shippingCorrectHint: (current: string) => string;
     lalamoveTitle: string;
     awaitingPaymentTitle: string;
     expiresAt: (time: string) => string;
@@ -115,6 +117,9 @@ export interface Dictionary {
     negotiatingTitle: string;
     negotiatingBody: string;
     amountDueTitle: string;
+    productSubtotal: string;
+    shippingFee: string;
+    payInstructions: string;
     uploadSlip: string;
     uploading: string;
     uploadError: string;

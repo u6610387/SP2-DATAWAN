@@ -30,6 +30,35 @@ describe('owner REST API', () => {
     expect((await jsonOf(res)).error.code).toBe('UNAUTHORIZED');
   });
 
+  it('answers the CORS preflight for OPTIONS /api/owner/orders without an Authorization header', async () => {
+    const h = makeHarness();
+    const res = await createApp(h.deps).request('/api/owner/orders', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'http://localhost:3000',
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'authorization,content-type',
+      },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:3000');
+    expect(res.headers.get('access-control-allow-methods')).toContain('GET');
+    expect(res.headers.get('access-control-allow-headers')?.toLowerCase()).toContain('authorization');
+  });
+
+  it('does not grant CORS to unlisted origins, and the real request still needs auth', async () => {
+    const h = makeHarness();
+    const app = createApp(h.deps);
+    const pre = await app.request('/api/owner/orders', {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://evil.example', 'Access-Control-Request-Method': 'GET' },
+    });
+    expect(pre.headers.get('access-control-allow-origin')).toBeNull();
+    const res = await app.request('/api/owner/orders', { headers: { Origin: 'http://localhost:3000' } });
+    expect(res.status).toBe(401);
+    expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:3000'); // so the browser can read the 401
+  });
+
   it('drives price → negotiation → shipping → payment → dispatch → delivered', async () => {
     const h = makeHarness();
     await h.seedCosts();

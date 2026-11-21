@@ -12,4 +12,5 @@ insert into products(name_th, aliases, unit, prep_types) values
   ('ปูม้า',      '{ปูม้า,ปู}',                         'kg', '{live,chilled,cooked}'),
   ('หอยแครง',   '{หอยแครง,แครง}',                    'kg', '{live}'),
   ('หมึกกล้วย',  '{หมึกกล้วย,ปลาหมึกกล้วย,หมึก}',      'kg', '{chilled}'),
-  ('กั้ง',       '{กั้ง,กั้งกระดาน}',                  'kg', '{live,chilled}');
+  ('กั้ง',       '{กั้ง,กั้งกระดาน}',                  'kg', '{live,chilled}'),
+  ('ปลากะพง',   '{ปลากะพง,กะพง,ปลากะพงขาว,กะพงขาว}',   'kg', '{live,chilled}');

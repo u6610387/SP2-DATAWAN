@@ -106,8 +106,9 @@ export default function OrderDetailPage() {
         />
       )}
 
-      {order.status === 'AWAITING_SHIPPING_FEE' && (
-        <ShippingCard t={t} busy={busy} onSubmit={(feeSatang) => run(() => ownerFetch(`/api/owner/orders/${order.id}/shipping`, token!, { method: 'POST', body: { feeSatang }, ifMatch: order.version }))} />
+      {/* Same states the worker accepts OWNER_SET_SHIPPING in (orderMachine): first entry, or a correction → new QR + timer. */}
+      {(order.status === 'AWAITING_SHIPPING_FEE' || order.status === 'AWAITING_PAYMENT' || order.status === 'PAYMENT_EXPIRED') && (
+        <ShippingCard key={`${order.id}-${order.version}`} t={t} busy={busy} currentFeeSatang={order.shippingFeeSatang} onSubmit={(feeSatang) => run(() => ownerFetch(`/api/owner/orders/${order.id}/shipping`, token!, { method: 'POST', body: { feeSatang }, ifMatch: order.version }))} />
       )}
 
       {order.lalamoveCard && (
@@ -230,15 +231,27 @@ function NegotiationCard({ order, t, busy, onAction }: { order: OwnerOrderView; 
   );
 }
 
-function ShippingCard({ t, busy, onSubmit }: { t: Dictionary; busy: boolean; onSubmit: (feeSatang: number) => void }) {
+function ShippingCard({
+  t,
+  busy,
+  currentFeeSatang,
+  onSubmit,
+}: {
+  t: Dictionary;
+  busy: boolean;
+  currentFeeSatang: number | null;
+  onSubmit: (feeSatang: number) => void;
+}) {
   const [baht, setBaht] = useState('');
   const feeSatang = Number(baht) >= 0 && baht !== '' ? bahtToSatang(Number(baht)) : null;
+  const correcting = currentFeeSatang !== null;
   return (
     <Card>
-      <CardTitle>{t.orderDetail.shippingTitle}</CardTitle>
+      <CardTitle>{correcting ? t.orderDetail.shippingCorrectTitle : t.orderDetail.shippingTitle}</CardTitle>
+      {correcting && <p className="mt-1 text-xs text-[var(--muted)]">{t.orderDetail.shippingCorrectHint(formatTHB(currentFeeSatang))}</p>}
       <div className="mt-2 flex items-center gap-2">
         <Input inputMode="decimal" placeholder={t.orderDetail.shippingPlaceholder} value={baht} onChange={(e) => setBaht(e.target.value)} />
-        <Button disabled={busy || feeSatang === null} onClick={() => feeSatang !== null && onSubmit(feeSatang)}>
+        <Button disabled={busy || feeSatang === null || feeSatang === currentFeeSatang} onClick={() => feeSatang !== null && onSubmit(feeSatang)}>
           {t.orderDetail.confirmShipping}
         </Button>
       </div>

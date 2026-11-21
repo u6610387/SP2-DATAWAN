@@ -51,14 +51,19 @@ export function priceCard(order: OrderRow, items: NamedItem[], liffId: string, h
   ]));
 }
 
-export function totalCard(order: OrderRow, liffId: string): Msg {
+export interface PromptPayInfo { id: string; name: string }
+
+/** Payment card: breakdown + PromptPay + slip instructions. Sent as the TOTAL_READY push, and as the
+ * free pull-on-message reply while AWAITING_PAYMENT (so a capped/deferred push loses nothing). */
+export function totalCard(order: OrderRow, liffId: string, promptpay: PromptPayInfo): Msg {
   const body = [
     row('ค่าสินค้า', formatTHB(order.product_price_satang ?? 0)),
     row('ค่าส่ง', formatTHB(order.shipping_fee_satang ?? 0)),
     separator(),
     row('ยอดรวม', formatTHB(order.total_satang ?? 0), true),
     ...(order.payment_expires_at ? [text(th.payWithin(bangkokHHMM(order.payment_expires_at)), { size: 'xs', color: COLORS.red })] : []),
-    text('โอนแล้วส่งสลิปในแชทนี้หรือในหน้าชำระเงินได้เลยค่ะ', { size: 'xs', color: COLORS.muted }),
+    text(th.promptpayTo(promptpay.id, promptpay.name), { size: 'sm', margin: 'md' }),
+    text(th.payInstructions, { size: 'xs', color: COLORS.muted }),
   ];
   return flex(`${th.totalTitle(order.code)}: ${formatTHB(order.total_satang ?? 0)}`, bubble(th.totalTitle(order.code), body, [
     button(uri(th.payButton, orderLiffUrl(liffId, order.id))),
@@ -75,9 +80,13 @@ export function statusCard(order: OrderRow, items: NamedItem[], liffId: string, 
     ...(order.shipping_fee_satang !== null ? [row('ค่าส่ง', formatTHB(order.shipping_fee_satang))] : []),
     ...(order.total_satang !== null ? [row('ยอดรวม', formatTHB(order.total_satang), true)] : []),
     ...(order.status === 'AWAITING_PAYMENT' && order.payment_expires_at ? [text(th.payWithin(bangkokHHMM(order.payment_expires_at)), { size: 'xs', color: COLORS.red })] : []),
-    ...(order.tracking_url ? [text(`ติดตาม: ${order.tracking_url}`, { size: 'xs' })] : []),
   ];
-  const footer = [button(uri(th.openOrderRoom, orderLiffUrl(liffId, order.id)))];
+  // LINE rejects the whole reply if a URI action is not http(s); both owner paths already enforce it.
+  const tracking = order.tracking_url && /^https?:\/\//i.test(order.tracking_url) ? order.tracking_url : null;
+  const footer = [
+    ...(tracking ? [button(uri(th.trackButton, tracking))] : []),
+    button(uri(th.openOrderRoom, orderLiffUrl(liffId, order.id)), tracking ? 'secondary' : 'primary'),
+  ];
   if (order.status === 'PRICE_QUOTED') footer.unshift(button(postback(th.acceptButton, postbackData({ a: 'accept', o: order.id, v: order.version }), th.acceptButton)));
   return flex(`${order.code}: ${th.status[order.status]}`, bubble(`ออเดอร์ ${order.code}`, body, footer));
 }

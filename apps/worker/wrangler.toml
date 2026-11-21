@@ -18,8 +18,11 @@ LIFF_PRESENCE_SECONDS = "60"
 PAYMENT_EXPIRY_MINUTES = "45"
 OWNER_REMINDER_MINUTES = "15"
 ABANDON_HOURS = "24"
+RECENT_ORDER_STATUS_HOURS = "24"
 DEFAULT_MARKUP = "0.25"
 STORAGE_RETENTION_DAYS = "60"
+# Browser origins allowed to call /api/* (comma-separated). Add the deployed web URL per env below.
+CORS_ALLOWED_ORIGINS = "http://localhost:3000"
 
 # Secrets (wrangler secret put <NAME>) — never commit values:
 # LINE_CHANNEL_SECRET, LINE_CHANNEL_ACCESS_TOKEN, LINE_OWNER_USER_ID, LIFF_ID, LINE_LOGIN_CHANNEL_ID,

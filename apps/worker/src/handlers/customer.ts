@@ -62,7 +62,17 @@ function asParse(v: unknown): ResolvedOrderParse | null {
   return v && typeof v === 'object' && 'items' in v ? (v as ResolvedOrderParse) : null;
 }
 
+function isRecentlyDelivered(deps: Deps, order: OrderRow): boolean {
+  if (!order.delivered_at) return false;
+  return deps.now().getTime() - new Date(order.delivered_at).getTime() <= deps.cfg.RECENT_ORDER_STATUS_HOURS * 3_600_000;
+}
+
 async function statusReply(deps: Deps, order: OrderRow): Promise<LineMessage> {
+  // While payable, the customer needs the payment card — the TOTAL_READY push may have been
+  // deferred by the Quota Guard (ORDER_CAP), and this free reply is the fallback (CLAUDE.md D2).
+  if (order.status === 'AWAITING_PAYMENT') {
+    return flex.totalCard(order, deps.cfg.LIFF_ID, { id: deps.cfg.PROMPTPAY_ID, name: deps.cfg.PROMPTPAY_RECEIVER_NAME });
+  }
   const [items, products] = await Promise.all([deps.repo.getItems(order.id), deps.repo.listActiveProducts()]);
   return flex.statusCard(order, withNames(items, products), deps.cfg.LIFF_ID, order.owner_reminded_at !== null);
 }
@@ -90,7 +100,7 @@ async function parseText(deps: Deps, user: UserRow, text: string, previousDraft?
     ...(previousDraft ? { previousDraft } : {}),
     ...(previousOrderItems.length ? { previousOrderItems } : {}),
   });
-  return { r, products, sourceOrderId: last?.id ?? null };
+  return { r, products, sourceOrderId: last?.id ?? null, lastDelivered: last };
 }
 
 export async function createOrderFromParse(
@@ -120,7 +130,7 @@ export async function createOrderFromParse(
 }
 
 async function newOrderFromText(deps: Deps, user: UserRow, text: string, replyToken?: string): Promise<void> {
-  const { r, products, sourceOrderId } = await parseText(deps, user, text);
+  const { r, products, sourceOrderId, lastDelivered } = await parseText(deps, user, text);
   if (!r.ok) {
     const order = await deps.repo.createOrder(
       { user_id: user.id, raw_order_text: text, ai_parse: null, needs_owner_review: true, channel: 'chat' },
@@ -131,8 +141,12 @@ async function newOrderFromText(deps: Deps, user: UserRow, text: string, replyTo
     return reply(deps, replyToken, [flex.textMsg(th.orderReceivedChecking)]);
   }
   const { parse, warnings } = r.data;
-  if (parse.intent === 'not_order') return reply(deps, replyToken, [flex.textMsg(th.welcome)]);
-  if (parse.intent === 'question') return reply(deps, replyToken, [flex.textMsg(th.questionForwarded)]);
+  if (parse.intent === 'not_order' || parse.intent === 'question') {
+    // No open order, but one was just delivered → "ของถึงยัง/ขอบคุณค่ะ" gets its status + tracking (free reply).
+    const recent = lastDelivered && isRecentlyDelivered(deps, lastDelivered) ? [await statusReply(deps, lastDelivered)] : [];
+    const text = parse.intent === 'question' ? th.questionForwarded : recent.length ? null : th.welcome;
+    return reply(deps, replyToken, [...recent, ...(text ? [flex.textMsg(text)] : [])]);
+  }
   const { messages } = await createOrderFromParse(deps, user, text, parse, warnings, products, sourceOrderId);
   return reply(deps, replyToken, messages);
 }
