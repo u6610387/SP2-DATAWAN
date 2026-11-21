@@ -190,12 +190,12 @@ The guard also keeps its own counter (`quota_logs.local_count`) because LINE's c
 ### 7.2 Push priority & budget
 | Priority | Event | Rule |
 |---|---|---|
-| P1 | Price ready (step 3), Tracking link (step 8) | Only if customer's LIFF is **not** present on the order's Realtime channel |
+| P1 | Price ready (step 3), Total + QR ready (step 6), Tracking link (step 8) | Only if customer's LIFF is **not** present on the order's Realtime channel |
 | P2 | Negotiation counter from owner, substitute offer | NORMAL mode only, and only if not present |
 | Never | 15-min reassurance, payment expiry, status changes, marketing | LIFF / reply only |
 
 Additional rules:
-- **Max 1 push per order** by default (`MAX_PUSH_PER_ORDER=1`); P1 tracking link goes out only if price-ready did not use the slot, otherwise it waits for pull-on-message.
+- **Max 1 push per order** by default (`MAX_PUSH_PER_ORDER=1`); the P1 events share that slot in order (price → total → tracking). Whichever comes after the slot is used waits for LIFF / pull-on-message.
 - **Daily pacing:** `daily_budget = floor(remaining / days_left_in_month)`. Exceeding today's budget → defer to pull-on-message.
 - **Pull-on-message:** whenever the customer sends *anything*, the reply (free) includes any pending update for their active order.
 - The reply to step 1 tells the customer: "ราคาและสถานะจะอัปเดตในหน้านี้ กดลิงก์ได้ตลอด" so they learn to check LIFF.

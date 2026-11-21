@@ -1,0 +1,187 @@
+/**
+ * Supabase implementation of Repo (service-role key; bypasses RLS — Worker only).
+ * Relies on DB behaviour from supabase/migrations: version bump trigger, order code trigger (0002),
+ * generated total_satang, unique indexes and status guards.
+ */
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { FINAL_STATUSES, type OrderRow, type OrderStatus } from '@datawan/shared';
+import type { NewOrder, NewOrderItem, Repo } from './repo';
+
+const OPEN_FILTER = `(${FINAL_STATUSES.map((s) => `"${s}"`).join(',')})`;
+
+/** Untyped client (no generated Database types yet): rows are cast to the shared row types. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function must<T = any>(res: { data: unknown; error: { message: string; code?: string } | null }, op: string): T {
+  if (res.error) throw new Error(`supabase ${op}: ${res.error.message}`);
+  return res.data as T;
+}
+
+export class SupabaseRepo implements Repo {
+  constructor(private readonly db: SupabaseClient) {}
+
+  static fromEnv(url: string, serviceRoleKey: string): SupabaseRepo {
+    return new SupabaseRepo(createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } }));
+  }
+
+  async markLineEvent(id: string) {
+    const res = await this.db.from('line_events').upsert({ webhook_event_id: id }, { onConflict: 'webhook_event_id', ignoreDuplicates: true }).select('webhook_event_id');
+    return must(res, 'markLineEvent').length > 0;
+  }
+
+  async upsertUserByLineId(lineUserId: string, displayName?: string | null) {
+    const existing = must(await this.db.from('users').select('*').eq('line_user_id', lineUserId).maybeSingle(), 'getUser');
+    if (existing) {
+      if (!existing.is_active) must(await this.db.from('users').update({ is_active: true }).eq('id', existing.id), 'reactivate');
+      return { ...existing, is_active: true };
+    }
+    return must(
+      await this.db.from('users').upsert({ line_user_id: lineUserId, display_name: displayName ?? null }, { onConflict: 'line_user_id' }).select('*').single(),
+      'insertUser',
+    );
+  }
+  async getUser(id: string) {
+    return must(await this.db.from('users').select('*').eq('id', id).maybeSingle(), 'getUser');
+  }
+  async setActiveOrder(userId: string, orderId: string | null) {
+    must(await this.db.from('users').update({ active_order_id: orderId }).eq('id', userId), 'setActiveOrder');
+  }
+  async markUserInactive(userId: string) {
+    must(await this.db.from('users').update({ is_active: false }).eq('id', userId), 'markUserInactive');
+  }
+
+  async listActiveProducts() {
+    return must(await this.db.from('products').select('*').eq('is_active', true).order('name_th'), 'listProducts');
+  }
+
+  async createOrder(order: NewOrder, items: NewOrderItem[]) {
+    // `code` is assigned by the assign_order_code trigger (0002_order_code.sql).
+    const row = must(await this.db.from('orders').insert(order).select('*').single(), 'createOrder') as OrderRow;
+    if (items.length) await this.replaceItems(row.id, items);
+    return row;
+  }
+  async getOrder(id: string) {
+    return must(await this.db.from('orders').select('*').eq('id', id).maybeSingle(), 'getOrder');
+  }
+  async getOpenOrderByCode(code: string) {
+    return must(
+      await this.db.from('orders').select('*').ilike('code', code).not('status', 'in', OPEN_FILTER).maybeSingle(),
+      'getOpenOrderByCode',
+    );
+  }
+  async listOpenOrders(filter: { userId?: string; statuses?: OrderStatus[] } = {}) {
+    let q = this.db.from('orders').select('*').not('status', 'in', OPEN_FILTER).order('created_at', { ascending: false });
+    if (filter.userId) q = q.eq('user_id', filter.userId);
+    if (filter.statuses) q = q.in('status', filter.statuses);
+    return must(await q, 'listOpenOrders');
+  }
+  async lastDeliveredOrder(userId: string) {
+    return must(
+      await this.db.from('orders').select('*').eq('user_id', userId).eq('status', 'DELIVERED').order('delivered_at', { ascending: false }).limit(1).maybeSingle(),
+      'lastDeliveredOrder',
+    );
+  }
+  async updateOrder(id: string, expectedVersion: number, patch: import('@datawan/shared').OrderPatch) {
+    const res = await this.db.from('orders').update(patch).eq('id', id).eq('version', expectedVersion).select('*');
+    const rows = must(res, 'updateOrder') as OrderRow[];
+    return rows[0] ?? null;
+  }
+
+  async getItems(orderId: string) {
+    return must(await this.db.from('order_items').select('*').eq('order_id', orderId).order('sort'), 'getItems');
+  }
+  async replaceItems(orderId: string, items: NewOrderItem[]) {
+    must(await this.db.from('order_items').delete().eq('order_id', orderId), 'deleteItems');
+    if (!items.length) return [];
+    return must(
+      await this.db.from('order_items').insert(items.map((it, sort) => ({ ...it, order_id: orderId, sort }))).select('*'),
+      'insertItems',
+    );
+  }
+  async updateItemCosts(updates: { id: string; cost_satang: number | null }[]) {
+    for (const u of updates) must(await this.db.from('order_items').update({ cost_satang: u.cost_satang }).eq('id', u.id), 'updateItemCost');
+  }
+
+  async insertAddress(a: import('./repo').NewAddress) {
+    return must(await this.db.from('addresses').insert(a).select('*').single(), 'insertAddress');
+  }
+  async getAddress(id: string) {
+    return must(await this.db.from('addresses').select('*').eq('id', id).maybeSingle(), 'getAddress');
+  }
+
+  async listNegotiations(orderId: string) {
+    return must(await this.db.from('negotiations').select('*').eq('order_id', orderId).order('round'), 'listNegotiations');
+  }
+  async insertNegotiation(n: import('./repo').NewNegotiation) {
+    return must(await this.db.from('negotiations').insert(n).select('*').single(), 'insertNegotiation');
+  }
+
+  async insertPayment(p: import('./repo').NewPayment) {
+    return must(await this.db.from('payments').insert(p).select('*').single(), 'insertPayment');
+  }
+  async latestPayment(orderId: string) {
+    return must(
+      await this.db.from('payments').select('*').eq('order_id', orderId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      'latestPayment',
+    );
+  }
+  async updatePayment(id: string, patch: import('./repo').PaymentPatch) {
+    return must(await this.db.from('payments').update(patch).eq('id', id).select('*').single(), 'updatePayment');
+  }
+  async referenceExists(ref: string) {
+    const res = await this.db.from('payments').select('id', { count: 'exact', head: true }).eq('reference_no', ref);
+    if (res.error) throw new Error(`supabase referenceExists: ${res.error.message}`);
+    return (res.count ?? 0) > 0;
+  }
+
+  async latestUnitCost(productId: string, sinceIso?: string) {
+    let q = this.db.from('price_history').select('unit_price_satang').eq('product_id', productId).eq('kind', 'cost');
+    if (sinceIso) q = q.gte('recorded_at', sinceIso);
+    const row = must(await q.order('recorded_at', { ascending: false }).limit(1).maybeSingle(), 'latestUnitCost');
+    return row?.unit_price_satang ?? null;
+  }
+  async lastSellUnitPrice(userId: string, productId: string, sinceIso: string) {
+    const row = must(
+      await this.db
+        .from('price_history')
+        .select('unit_price_satang')
+        .eq('user_id', userId)
+        .eq('product_id', productId)
+        .eq('kind', 'sell')
+        .gte('recorded_at', sinceIso)
+        .order('recorded_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      'lastSellUnitPrice',
+    );
+    return row?.unit_price_satang ?? null;
+  }
+
+  async insertStockLogs(rows: import('./repo').NewStockLog[]) {
+    if (rows.length) must(await this.db.from('stock_logs').insert(rows), 'insertStockLogs');
+  }
+  async insertPriceHistory(rows: import('./repo').NewPriceHistory[]) {
+    if (rows.length) must(await this.db.from('price_history').insert(rows), 'insertPriceHistory');
+  }
+
+  async latestQuotaLog(month: string) {
+    return must(
+      await this.db.from('quota_logs').select('*').eq('month', month).order('checked_at', { ascending: false }).limit(1).maybeSingle(),
+      'latestQuotaLog',
+    );
+  }
+  async insertQuotaLog(row: import('./repo').NewQuotaLog) {
+    return must(await this.db.from('quota_logs').insert(row).select('*').single(), 'insertQuotaLog');
+  }
+
+  async insertEvent(e: import('./repo').NewOrderEvent) {
+    return must(await this.db.from('order_events').insert(e).select('*').single(), 'insertEvent');
+  }
+  async getEvent(id: string) {
+    return must(await this.db.from('order_events').select('*').eq('id', id).maybeSingle(), 'getEvent');
+  }
+  async countEventsSince(event: string, sinceIso: string) {
+    const res = await this.db.from('order_events').select('id', { count: 'exact', head: true }).eq('event', event).gte('created_at', sinceIso);
+    if (res.error) throw new Error(`supabase countEventsSince: ${res.error.message}`);
+    return res.count ?? 0;
+  }
+}

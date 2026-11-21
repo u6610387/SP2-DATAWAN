@@ -62,7 +62,8 @@ Create in LINE Developers, one set per `APP_ENV` (dev / exhibition / defence):
 
 ### 3.3 Run the Worker + tunnel
 ```bash
-pnpm --filter worker dev                         # wrangler dev on :8787
+cp .env.example apps/worker/.dev.vars            # wrangler reads secrets from here (git-ignored)
+pnpm --filter @datawan/worker dev                # wrangler dev on :8787
 cloudflared tunnel --url http://localhost:8787   # gives https://xxxx.trycloudflare.com
 ```
 Set LINE webhook URL to `https://xxxx.trycloudflare.com/webhook` → **Verify** → enable **Use webhook**.
@@ -89,7 +90,7 @@ iPhone owner: open the dashboard in Safari → Share → **Add to Home Screen**,
 | `pnpm test` | unit tests (incl. state-machine safety test) |
 | `pnpm typecheck` / `pnpm lint` | CI checks |
 | `pnpm eval:run --task order_parse` | AI benchmark (see `AI_EVALUATION.md`) |
-| `AI_MOCK=1 pnpm --filter worker dev` | worker without calling Gemini |
+| `pnpm --filter @datawan/worker dev` | worker locally (secrets in `apps/worker/.dev.vars`; `USE_MOCK_AI=true` = no Gemini calls) |
 
 ---
 
