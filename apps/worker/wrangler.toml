@@ -1,0 +1,38 @@
+name = "datawan-worker"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[triggers]
+crons = ["* * * * *", "*/10 * * * *", "0 20 * * *", "0 1 * * 1"]
+
+[vars]
+APP_ENV = "dev"
+USE_MOCK_AI = "true"
+GEMINI_SLIP_MODE = "paid"
+LINE_PUSH_MONTHLY_LIMIT = "300"
+QUOTA_WARN_RATIO = "0.80"
+QUOTA_SAVER_RATIO = "0.95"
+MAX_PUSH_PER_ORDER = "1"
+LIFF_PRESENCE_SECONDS = "60"
+PAYMENT_EXPIRY_MINUTES = "45"
+OWNER_REMINDER_MINUTES = "15"
+ABANDON_HOURS = "24"
+DEFAULT_MARKUP = "0.25"
+STORAGE_RETENTION_DAYS = "60"
+
+# Secrets (wrangler secret put <NAME>) — never commit values:
+# LINE_CHANNEL_SECRET, LINE_CHANNEL_ACCESS_TOKEN, LINE_OWNER_USER_ID, LIFF_ID,
+# SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, OWNER_AUTH_USER_ID,
+# PROMPTPAY_ID, PROMPTPAY_RECEIVER_NAME, GEMINI_API_KEY, GEMINI_MODEL, GEMINI_SLIP_API_KEY
+# Local dev: put them in apps/worker/.dev.vars (git-ignored).
+
+[env.exhibition.vars]
+APP_ENV = "exhibition"
+
+[env.defence.vars]
+APP_ENV = "defence"
+
+[env.production.vars]
+APP_ENV = "production"
+GEMINI_SLIP_MODE = "manual"

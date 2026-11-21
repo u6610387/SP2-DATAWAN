@@ -135,7 +135,7 @@ Checks may **flag or downgrade**, never approve anything (see `seafood-domain-ru
 ## 6. Free-tier hygiene
 - Respect `GEMINI_RPM_LIMIT` / `GEMINI_RPD_LIMIT` (simple counter per minute/day in a Durable Object or Supabase row); when exhausted, go straight to fallback rather than hammering 429s.
 - Slip images: honour `GEMINI_SLIP_MODE`; refuse to send slips with a `free` tier key.
-- When `AI_MOCK=1`, return fixtures from `eval/datasets/<task>/samples.jsonl` ground truth so the worker and web can be developed offline.
+- When `USE_MOCK_AI=true`, `createAi()` uses `packages/ai/src/mock/provider.ts` (deterministic, offline). The mock goes through the same strip → Zod → checks → restore pipeline, so swapping to Gemini changes nothing outside `packages/ai/src/gemini/provider.ts`.
 
 ## 7. Tests
 - Unit: PII strip/restore round-trip, `assertNoPII` on tricky Thai inputs (phones with spaces, "คุณแดง", "ซ.เพชรเกษม 48").

@@ -459,5 +459,5 @@ export const SlipReadResult = z.object({
 | You are | Mock this | How |
 |---|---|---|
 | Kitirat (web) | Worker API | MSW handlers in `apps/web/src/mocks/` returning the view models above |
-| Thanadon (worker) | Gemini | `AI_MOCK=1` → `packages/ai` returns fixtures from `eval/datasets/*/sample.json` |
+| Thanadon (worker) | Gemini | `USE_MOCK_AI=true` → `packages/ai` uses the deterministic mock provider (`src/mock/`): rule-based Thai order/note parsing, image-fingerprint fixtures for bills/slips |
 | Thanakrit (AI) | DB / LINE | Pure functions; run with `pnpm --filter ai test` and `pnpm eval:<task>` |
