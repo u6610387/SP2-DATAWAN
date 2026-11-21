@@ -66,19 +66,33 @@ export default function DashboardHome() {
       </Card>
 
       <Card>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <CardTitle>{t.dashboard.quotaTitle}</CardTitle>
           {quota.data && (
-            <span className="text-xs text-[var(--muted)]">
-              {quota.data.used} / {quota.data.limit}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs tabular-nums text-[var(--muted)]">
+                {quota.data.used} / {quota.data.limit}
+              </span>
+              <Badge
+                className={
+                  quota.data.mode === 'QUOTA_SAVER'
+                    ? 'bg-[var(--red-bg)] text-[var(--red)]'
+                    : quota.data.mode === 'WARNING'
+                      ? 'bg-[var(--yellow-bg)] text-[var(--yellow)]'
+                      : 'bg-[var(--green-bg)] text-[var(--green)]'
+                }
+              >
+                {quota.data.mode === 'QUOTA_SAVER' ? t.dashboard.quotaSaverBadge : quota.data.mode === 'WARNING' ? t.dashboard.quotaWarningBadge : t.dashboard.quotaNormal}
+              </Badge>
+            </div>
           )}
         </div>
         {quota.data ? (
           <>
             <Progress
               value={(quota.data.used / quota.data.limit) * 100}
-              className="mt-2"
+              markers={[80, 95]}
+              className="mt-3"
               barClassName={quota.data.mode === 'QUOTA_SAVER' ? 'bg-[var(--red)]' : quota.data.mode === 'WARNING' ? 'bg-[var(--yellow)]' : undefined}
             />
             {quota.data.mode === 'WARNING' && <p className="mt-2 text-xs text-[var(--yellow)]">{t.dashboard.quotaWarning}</p>}
@@ -97,18 +111,18 @@ export default function DashboardHome() {
             </CardTitle>
             <div className="mt-2 space-y-2">
               {grouped.get(status)!.map((o) => (
-                <Link key={o.id} href={`/dashboard/orders/${o.id}`} className="flex items-center justify-between rounded-xl border border-[var(--border)] p-3">
-                  <div>
+                <Link key={o.id} href={`/dashboard/orders/${o.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] p-3">
+                  <div className="min-w-0">
                     <div className="font-semibold">{o.code}</div>
-                    <div className="text-xs text-[var(--muted)]">{o.customer.name ?? o.customer.businessName ?? '-'}</div>
+                    <div className="truncate text-xs text-[var(--muted)]">{o.customer.name ?? o.customer.businessName ?? '-'}</div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                     {o.totalSatang !== null ? (
-                      <span className="text-sm">{formatTHB(o.totalSatang)}</span>
+                      <span className="text-sm tabular-nums">{formatTHB(o.totalSatang)}</span>
                     ) : o.productPriceSatang !== null ? (
-                      <span className="text-sm">{formatTHB(o.productPriceSatang)}</span>
+                      <span className="text-sm tabular-nums">{formatTHB(o.productPriceSatang)}</span>
                     ) : o.suggestedPriceSatang !== null ? (
-                      <span className="text-sm text-[var(--muted)]">{t.orderDetail.suggested(formatTHB(o.suggestedPriceSatang))}</span>
+                      <span className="text-sm tabular-nums text-[var(--muted)]">~{formatTHB(o.suggestedPriceSatang)}</span>
                     ) : null}
                     <MarginBadge color={o.marginColor}>{o.marginColor === 'GREY' ? '—' : o.marginColor === 'GREEN' ? t.dashboard.profit : t.dashboard.loss}</MarginBadge>
                     {o.needsOwnerReview && <Badge className="bg-[var(--yellow-bg)] text-[var(--yellow)]">{t.dashboard.needsReview}</Badge>}

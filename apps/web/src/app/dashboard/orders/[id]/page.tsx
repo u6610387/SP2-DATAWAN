@@ -3,7 +3,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { bahtToSatang, computeMargin, formatTHB, type OwnerOrderView } from '@datawan/shared';
-import { Badge, MarginBadge } from '@/components/ui/badge';
+import { MarginPreview } from '@/components/MarginPreview';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -45,7 +46,14 @@ export default function OrderDetailPage() {
 
   return (
     <div className="space-y-4">
-      <button onClick={() => router.push('/dashboard')} className="text-sm text-[var(--brand)]">
+      <button
+        onClick={() => router.push('/dashboard')}
+        aria-label={t.orderDetail.backAria}
+        className="-ml-2 inline-flex h-10 items-center gap-1.5 rounded-full px-2 text-sm font-medium text-[var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5 shrink-0" aria-hidden="true">
+          <path d="M15 19l-7-7 7-7" />
+        </svg>
         {t.orderDetail.back}
       </button>
 
@@ -177,10 +185,8 @@ function PriceCard({ order, t, busy, onSubmit }: { order: OwnerOrderView; t: Dic
         {order.suggestedPriceSatang !== null && <p>{t.orderDetail.suggested(formatTHB(order.suggestedPriceSatang))}</p>}
         {order.b2bAnchorPriceSatang !== null && <p>{t.orderDetail.b2bAnchor(formatTHB(order.b2bAnchorPriceSatang))}</p>}
       </div>
-      <div className="mt-3 flex items-center gap-2">
-        <Input inputMode="decimal" placeholder={t.orderDetail.pricePlaceholder} value={baht} onChange={(e) => setBaht(e.target.value)} />
-        {margin && <MarginBadge color={margin.color}>{margin.marginSatang !== null ? formatTHB(margin.marginSatang) : '—'}</MarginBadge>}
-      </div>
+      <Input className="mt-3" inputMode="decimal" placeholder={t.orderDetail.pricePlaceholder} value={baht} onChange={(e) => setBaht(e.target.value)} />
+      {margin && <MarginPreview margin={margin} t={t} />}
       <Input className="mt-2" placeholder={t.orderDetail.notePlaceholder} value={note} onChange={(e) => setNote(e.target.value)} />
       <Button className="mt-3" size="lg" disabled={busy || amountSatang === null} onClick={() => amountSatang !== null && onSubmit(amountSatang, note || null)}>
         {t.orderDetail.confirmPrice}
@@ -194,10 +200,18 @@ function NegotiationCard({ order, t, busy, onAction }: { order: OwnerOrderView; 
   const [baht, setBaht] = useState('');
   const counterAmount = Number(baht) > 0 ? bahtToSatang(Number(baht)) : null;
 
+  const offerMargin = lastCounter?.amountSatang != null ? computeMargin(lastCounter.amountSatang, [order.costSatang]) : null;
+
   return (
     <Card>
       <CardTitle>{t.orderDetail.negotiationTitle}</CardTitle>
-      {lastCounter?.amountSatang != null && <div className="mt-2 text-xl font-semibold">{formatTHB(lastCounter.amountSatang)}</div>}
+      {lastCounter?.amountSatang != null && (
+        <>
+          <div className="mt-2 text-xs text-[var(--muted)]">{t.orderDetail.customerOffered}</div>
+          <div className="text-xl font-semibold">{formatTHB(lastCounter.amountSatang)}</div>
+          {offerMargin && <MarginPreview margin={offerMargin} t={t} />}
+        </>
+      )}
       <div className="mt-3 grid grid-cols-2 gap-2">
         <Button disabled={busy} onClick={() => onAction('accept')}>
           {t.orderDetail.accept}
