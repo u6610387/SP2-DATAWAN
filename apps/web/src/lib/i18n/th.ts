@@ -63,6 +63,8 @@ export const th: Dictionary = {
     shippingTitle: 'ค่าส่ง (Lalamove)',
     shippingPlaceholder: 'ค่าส่ง (บาท)',
     confirmShipping: 'ยืนยัน',
+    shippingCorrectTitle: 'แก้ไขค่าส่ง',
+    shippingCorrectHint: (current: string) => `ค่าส่งปัจจุบัน ${current} — ถ้าแก้ ลูกค้าจะได้ยอดและ QR ใหม่ และเริ่มนับเวลาชำระใหม่`,
     lalamoveTitle: 'การ์ด Lalamove (คัดลอกไปวางในแอป)',
     awaitingPaymentTitle: 'รอชำระเงิน',
     expiresAt: (time) => `หมดเวลา ${time}`,
