@@ -28,6 +28,14 @@ export const ConfigSchema = z.object({
   MAX_PUSH_PER_ORDER: num(1),
   LIFF_PRESENCE_SECONDS: num(60),
   LIFF_ID: z.string().default(''),
+  /**
+   * Browser origins allowed to call /api/* (dashboard + LIFF frontend), comma-separated.
+   * Per-environment value in wrangler.toml [vars]; default covers local `next dev`.
+   */
+  CORS_ALLOWED_ORIGINS: z
+    .string()
+    .default('http://localhost:3000')
+    .transform((v) => [...new Set(v.split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean))]),
   LINE_LOGIN_CHANNEL_ID: z.string().default(''),
   /** Dev-only LIFF auth bypass (x-liff-dev-user header). Verifier also requires APP_ENV==='dev'. */
   LIFF_DEV_BYPASS: bool.default(false),
