@@ -63,6 +63,8 @@ export const en: Dictionary = {
     shippingTitle: 'Shipping fee (Lalamove)',
     shippingPlaceholder: 'Shipping fee (THB)',
     confirmShipping: 'Confirm',
+    shippingCorrectTitle: 'Correct shipping fee',
+    shippingCorrectHint: (current: string) => `Current fee ${current}. Changing it gives the customer a new total + QR and restarts the payment timer.`,
     lalamoveTitle: 'Lalamove card (copy into the app)',
     awaitingPaymentTitle: 'Awaiting payment',
     expiresAt: (time) => `Expires ${time}`,
