@@ -29,6 +29,7 @@ export class FakeAuth implements AuthVerifier {
 }
 
 export const OWNER_LINE = 'Uowner0000000000000000000000000000';
+export const OWNER_LINE_2 = 'Uowner2000000000000000000000000000';
 export const CUSTOMER_LINE = 'Ucustomer00000000000000000000000000';
 export const OWNER_AUTH = '11111111-1111-4111-8111-111111111111';
 export const SECRET = 'test-channel-secret';
@@ -59,7 +60,7 @@ export function makeHarness(startIso = '2027-01-14T02:20:00Z') {
   const cfg = loadConfig({
     LINE_CHANNEL_SECRET: SECRET,
     LINE_CHANNEL_ACCESS_TOKEN: 'token',
-    LINE_OWNER_USER_ID: OWNER_LINE,
+    LINE_OWNER_USER_ID: `${OWNER_LINE},${OWNER_LINE_2}`,
     LIFF_ID: '2000000000-abcdEFGH',
     OWNER_AUTH_USER_ID: OWNER_AUTH,
     PROMPTPAY_ID: '0812345678',
@@ -97,6 +98,7 @@ export function makeHarness(startIso = '2027-01-14T02:20:00Z') {
   }
   const customerText = (text: string) => send(CUSTOMER_LINE, { type: 'message', message: { id: `m${seq + 1}`, type: 'text', quoteToken: 'q', text } });
   const ownerText = (text: string) => send(OWNER_LINE, { type: 'message', message: { id: `m${seq + 1}`, type: 'text', quoteToken: 'q', text } });
+  const ownerText2 = (text: string) => send(OWNER_LINE_2, { type: 'message', message: { id: `m${seq + 1}`, type: 'text', quoteToken: 'q', text } });
   const customerPostback = (data: string) => send(CUSTOMER_LINE, { type: 'postback', postback: { data } });
   const customerLocation = (lat: number, lng: number, address: string) =>
     send(CUSTOMER_LINE, { type: 'message', message: { id: `m${seq + 1}`, type: 'location', latitude: lat, longitude: lng, address } });
@@ -111,7 +113,7 @@ export function makeHarness(startIso = '2027-01-14T02:20:00Z') {
       { product_id: 'p-hoi', kind: 'cost', unit_price_satang: 15000, source: 'supplier_bill', user_id: null, order_id: null },
     ]);
   }
-  return { deps, repo, line, notifier, realtime, auth, clock, send, customerText, ownerText, customerPostback, customerLocation, customerImage, seedCosts };
+  return { deps, repo, line, notifier, realtime, auth, clock, send, customerText, ownerText, ownerText2, customerPostback, customerLocation, customerImage, seedCosts };
 }
 
 /** Extract the postback `data` of the first button whose data starts with `a=<action>`. */

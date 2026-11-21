@@ -9,12 +9,19 @@ const bool = z
   .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'yes'].includes(v.toLowerCase())));
 const num = (d: number) => z.coerce.number().default(d);
 
+/** Comma-separated LINE userIds (owner may have more than one account/device). */
+const ownerIds = z
+  .string()
+  .min(1)
+  .transform((v) => v.split(',').map((id) => id.trim()).filter(Boolean))
+  .refine((ids) => ids.length > 0, 'at least one owner LINE userId is required');
+
 export const ConfigSchema = z.object({
   APP_ENV: z.enum(['dev', 'exhibition', 'defence', 'production']).default('dev'),
 
   LINE_CHANNEL_SECRET: z.string().min(1),
   LINE_CHANNEL_ACCESS_TOKEN: z.string().min(1),
-  LINE_OWNER_USER_ID: z.string().min(1),
+  LINE_OWNER_USER_ID: ownerIds,
   LINE_PUSH_MONTHLY_LIMIT: num(300),
   QUOTA_WARN_RATIO: num(0.8),
   QUOTA_SAVER_RATIO: num(0.95),

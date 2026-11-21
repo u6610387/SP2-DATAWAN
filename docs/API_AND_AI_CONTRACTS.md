@@ -186,7 +186,7 @@ Entry: `POST /webhook`
 ### 4.1 Routing
 
 ```
-if event.source.userId == LINE_OWNER_USER_ID  → ownerCommandHandler (text only)
+if event.source.userId in LINE_OWNER_USER_ID  → ownerCommandHandler (text only)  # comma-separated list of owner userIds
 else → customerRouter(event, user, activeOrder)
 ```
 

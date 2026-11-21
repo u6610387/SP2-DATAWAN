@@ -9,7 +9,7 @@ Apply these checks to every change in this repo that touches money, stock, order
 
 ## 1. Human-in-the-loop gate
 
-**Owner-only actions** (must come from an owner-authenticated request or a LINE message whose `source.userId === env.LINE_OWNER_USER_ID`):
+**Owner-only actions** (must come from an owner-authenticated request or a LINE message whose `source.userId` is one of `env.LINE_OWNER_USER_ID` — a comma-separated list of owner userIds, parsed to `string[]` in `env.ts`):
 `OWNER_SET_PRICE`, `OWNER_ACCEPT`, `OWNER_COUNTER`, `OWNER_HOLD`, `OWNER_SET_SHIPPING`, `OWNER_CONFIRM_PAYMENT`, `OWNER_REJECT_SLIP`, `OWNER_DISPATCH`, `OWNER_DELIVERED`, stock writes, supplier-bill save.
 
 Checklist when you write or review code:
