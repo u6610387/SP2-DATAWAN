@@ -4,6 +4,7 @@
  */
 import type { webhook } from '@line/bot-sdk';
 import type { Deps } from '../deps';
+import { isOwnerLineUser } from '../env';
 import { handleCustomerEvent } from '../handlers/customer';
 import { handleOwnerEvent } from '../handlers/owner';
 import { verifyLineSignature } from '../line/signature';
@@ -32,6 +33,6 @@ export async function handleWebhook(deps: Deps, rawBody: string, signature: stri
 export async function routeEvent(deps: Deps, ev: webhook.Event): Promise<void> {
   const source = ev.source;
   if (!source || source.type !== 'user' || !source.userId) return; // groups/rooms not supported
-  if (source.userId === deps.cfg.LINE_OWNER_USER_ID) return handleOwnerEvent(deps, ev);
+  if (isOwnerLineUser(deps.cfg, source.userId)) return handleOwnerEvent(deps, ev);
   return handleCustomerEvent(deps, ev, source.userId);
 }

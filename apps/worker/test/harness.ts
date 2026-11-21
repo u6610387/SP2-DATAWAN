@@ -28,7 +28,9 @@ export class FakeAuth implements AuthVerifier {
   }
 }
 
-export const OWNER_LINE = 'Uowner0000000000000000000000000000';
+export const OWNER_LINE = 'U00000000000000000000000000000a11';
+/** Second owner account (LINE_OWNER_USER_ID is a comma-separated list). */
+export const OWNER_LINE_2 = 'U00000000000000000000000000000a22';
 export const CUSTOMER_LINE = 'Ucustomer00000000000000000000000000';
 export const OWNER_AUTH = '11111111-1111-4111-8111-111111111111';
 export const SECRET = 'test-channel-secret';
@@ -59,7 +61,7 @@ export function makeHarness(startIso = '2027-01-14T02:20:00Z') {
   const cfg = loadConfig({
     LINE_CHANNEL_SECRET: SECRET,
     LINE_CHANNEL_ACCESS_TOKEN: 'token',
-    LINE_OWNER_USER_ID: OWNER_LINE,
+    LINE_OWNER_USER_ID: `${OWNER_LINE}, ${OWNER_LINE_2}`,
     LIFF_ID: '2000000000-abcdEFGH',
     OWNER_AUTH_USER_ID: OWNER_AUTH,
     PROMPTPAY_ID: '0812345678',
