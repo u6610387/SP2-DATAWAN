@@ -18,6 +18,7 @@ LIFF_PRESENCE_SECONDS = "60"
 PAYMENT_EXPIRY_MINUTES = "45"
 OWNER_REMINDER_MINUTES = "15"
 ABANDON_HOURS = "24"
+RECENT_ORDER_STATUS_HOURS = "24"
 DEFAULT_MARKUP = "0.25"
 STORAGE_RETENTION_DAYS = "60"
 # Browser origins allowed to call /api/* (comma-separated). Add the deployed web URL per env below.
