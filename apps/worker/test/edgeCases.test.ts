@@ -171,3 +171,27 @@ describe('timers never move money forward', () => {
     expect(h.repo.orders[1]!.status).toBe('AWAITING_PRICE'); // owner offline ≠ auto-cancel
   });
 });
+
+describe('pull-on-message while AWAITING_PAYMENT (total push deferred by ORDER_CAP)', () => {
+  it('replies with the payment card: breakdown, PromptPay details, slip instructions and pay button', async () => {
+    const h = makeHarness();
+    await toAwaitingPayment(h);
+    const o = h.repo.orders.at(-1)!;
+    expect(o.status).toBe('AWAITING_PAYMENT');
+    expect(h.repo.events.filter((e) => e.event === 'PUSH_DEFERRED').at(-1)?.payload).toMatchObject({ why: 'TOTAL_READY', reason: 'ORDER_CAP' });
+
+    await h.customerText('ยอดเท่าไหร่คะ');
+    const r = h.line.lastReplyText();
+    expect(r).toContain('ค่าสินค้า');
+    expect(r).toContain('฿900');
+    expect(r).toContain('ค่าส่ง');
+    expect(r).toContain('฿100');
+    expect(r).toContain('฿1,000'); // total
+    expect(r).toContain('PromptPay');
+    expect(r).toContain(h.deps.cfg.PROMPTPAY_ID);
+    expect(r).toContain('สลิป');
+    expect(r).toContain('ชำระเงิน / ดู QR');
+    expect(h.line.pushes).toHaveLength(1); // still a free reply, no extra push
+  });
+});
+

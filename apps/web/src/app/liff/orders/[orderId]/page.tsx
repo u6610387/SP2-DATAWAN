@@ -107,7 +107,21 @@ function OrderRoom({ orderId, auth }: { orderId: string; auth: { idToken: string
       {order.status === 'AWAITING_PAYMENT' && order.totalSatang !== null && (
         <Card>
           <CardTitle>{t.liff.amountDueTitle}</CardTitle>
-          <div className="mt-1 text-center text-2xl font-semibold">{formatTHB(order.totalSatang)}</div>
+          <dl className="mt-2 space-y-1 text-sm">
+            {order.productPriceSatang !== null && (
+              <div className="flex justify-between">
+                <dt className="text-[var(--muted)]">{t.liff.productSubtotal}</dt>
+                <dd className="tabular-nums">{formatTHB(order.productPriceSatang)}</dd>
+              </div>
+            )}
+            {order.shippingFeeSatang !== null && (
+              <div className="flex justify-between">
+                <dt className="text-[var(--muted)]">{t.liff.shippingFee}</dt>
+                <dd className="tabular-nums">{formatTHB(order.shippingFeeSatang)}</dd>
+              </div>
+            )}
+          </dl>
+          <div className="mt-2 border-t border-[var(--border)] pt-2 text-center text-2xl font-semibold tabular-nums">{formatTHB(order.totalSatang)}</div>
           {order.paymentExpiresAt && (
             <div className="mt-1 text-center text-xs text-[var(--muted)]">
               <Countdown until={order.paymentExpiresAt} />
@@ -118,6 +132,7 @@ function OrderRoom({ orderId, auth }: { orderId: string; auth: { idToken: string
               <PromptPayQR payload={order.promptpayPayload} />
             </div>
           )}
+          <p className="mt-3 text-center text-xs text-[var(--muted)]">{t.liff.payInstructions}</p>
           <SlipUpload t={t} orderId={orderId} auth={auth} busy={busy} onUploaded={() => void mutate()} setError={setActionError} />
         </Card>
       )}

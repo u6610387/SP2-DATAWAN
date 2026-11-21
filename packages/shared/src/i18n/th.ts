@@ -23,6 +23,8 @@ export const th = {
   totalTitle: (code: string) => `ยอดชำระ ${code}`,
   payButton: 'ชำระเงิน / ดู QR',
   payWithin: (time: string) => `กรุณาชำระภายใน ${time} น.`,
+  promptpayTo: (id: string, name: string) => `PromptPay: ${id}${name ? ` (${name})` : ''}`,
+  payInstructions: 'สแกน QR หรือโอนเข้า PromptPay ด้านบน แล้วส่งสลิปในแชทนี้หรือในหน้าชำระเงินได้เลยค่ะ',
   paymentExpired: 'หมดเวลาชำระแล้วค่ะ ร้านจะเช็กค่าส่งใหม่ให้นะคะ',
   slipReceived: 'ได้รับสลิปแล้วค่ะ รอร้านตรวจสอบสักครู่นะคะ',
   notASlip: 'รูปนี้ไม่ใช่สลิปโอนเงินหรืออ่านไม่ออกค่ะ ส่งใหม่อีกครั้งได้ไหมคะ',

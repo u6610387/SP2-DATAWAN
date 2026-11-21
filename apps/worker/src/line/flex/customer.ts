@@ -51,14 +51,19 @@ export function priceCard(order: OrderRow, items: NamedItem[], liffId: string, h
   ]));
 }
 
-export function totalCard(order: OrderRow, liffId: string): Msg {
+export interface PromptPayInfo { id: string; name: string }
+
+/** Payment card: breakdown + PromptPay + slip instructions. Sent as the TOTAL_READY push, and as the
+ * free pull-on-message reply while AWAITING_PAYMENT (so a capped/deferred push loses nothing). */
+export function totalCard(order: OrderRow, liffId: string, promptpay: PromptPayInfo): Msg {
   const body = [
     row('ค่าสินค้า', formatTHB(order.product_price_satang ?? 0)),
     row('ค่าส่ง', formatTHB(order.shipping_fee_satang ?? 0)),
     separator(),
     row('ยอดรวม', formatTHB(order.total_satang ?? 0), true),
     ...(order.payment_expires_at ? [text(th.payWithin(bangkokHHMM(order.payment_expires_at)), { size: 'xs', color: COLORS.red })] : []),
-    text('โอนแล้วส่งสลิปในแชทนี้หรือในหน้าชำระเงินได้เลยค่ะ', { size: 'xs', color: COLORS.muted }),
+    text(th.promptpayTo(promptpay.id, promptpay.name), { size: 'sm', margin: 'md' }),
+    text(th.payInstructions, { size: 'xs', color: COLORS.muted }),
   ];
   return flex(`${th.totalTitle(order.code)}: ${formatTHB(order.total_satang ?? 0)}`, bubble(th.totalTitle(order.code), body, [
     button(uri(th.payButton, orderLiffUrl(liffId, order.id))),

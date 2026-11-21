@@ -63,6 +63,11 @@ function asParse(v: unknown): ResolvedOrderParse | null {
 }
 
 async function statusReply(deps: Deps, order: OrderRow): Promise<LineMessage> {
+  // While payable, the customer needs the payment card — the TOTAL_READY push may have been
+  // deferred by the Quota Guard (ORDER_CAP), and this free reply is the fallback (CLAUDE.md D2).
+  if (order.status === 'AWAITING_PAYMENT') {
+    return flex.totalCard(order, deps.cfg.LIFF_ID, { id: deps.cfg.PROMPTPAY_ID, name: deps.cfg.PROMPTPAY_RECEIVER_NAME });
+  }
   const [items, products] = await Promise.all([deps.repo.getItems(order.id), deps.repo.listActiveProducts()]);
   return flex.statusCard(order, withNames(items, products), deps.cfg.LIFF_ID, order.owner_reminded_at !== null);
 }

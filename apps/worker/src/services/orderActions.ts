@@ -152,7 +152,7 @@ export async function ownerSetShipping(deps: Deps, order: OrderRow, feeSatang: n
     res.order.address_id ? deps.repo.getAddress(res.order.address_id) : Promise.resolve(null),
     deps.repo.getUser(res.order.user_id),
   ]);
-  const push = await sendPushGuarded(deps, { order: res.order, priority: 'P1', reason: 'TOTAL_READY', messages: [flex.totalCard(res.order, deps.cfg.LIFF_ID)] });
+  const push = await sendPushGuarded(deps, { order: res.order, priority: 'P1', reason: 'TOTAL_READY', messages: [flex.totalCard(res.order, deps.cfg.LIFF_ID, { id: deps.cfg.PROMPTPAY_ID, name: deps.cfg.PROMPTPAY_RECEIVER_NAME })] });
   return { ok: true, order: push.order, lalamoveCard: flex.lalamoveCardText(push.order, address, user), push };
 }
 

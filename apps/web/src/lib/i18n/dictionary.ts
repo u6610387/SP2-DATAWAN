@@ -117,6 +117,9 @@ export interface Dictionary {
     negotiatingTitle: string;
     negotiatingBody: string;
     amountDueTitle: string;
+    productSubtotal: string;
+    shippingFee: string;
+    payInstructions: string;
     uploadSlip: string;
     uploading: string;
     uploadError: string;
