@@ -35,9 +35,9 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   const { t } = useLanguage();
   return (
     <div className="mx-auto min-h-dvh max-w-md pb-24">
-      <header className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--bg)]/90 px-4 py-3 backdrop-blur">
-        <span className="truncate font-semibold">{t.common.brand}</span>
-        <div className="flex items-center gap-2">
+      <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--bg)]/90 px-4 py-3 backdrop-blur">
+        <span className="min-w-0 flex-1 truncate font-semibold">{t.common.brand}</span>
+        <div className="flex shrink-0 items-center gap-2">
           <PushSubscribeButton />
           <LanguageToggle />
         </div>

@@ -35,7 +35,11 @@ export default function InventoryPage() {
           <ul className="mt-2 divide-y divide-[var(--border)]">
             {stock.map((row) => (
               <li key={row.productId} className="py-3">
-                <button className="flex w-full items-center justify-between text-left" onClick={() => setOpen(open === row.productId ? null : row.productId)}>
+                <button
+                  className="flex w-full items-center justify-between text-left"
+                  aria-expanded={open === row.productId}
+                  onClick={() => setOpen(open === row.productId ? null : row.productId)}
+                >
                   <span>{row.nameTh}</span>
                   <span className="font-semibold">
                     {row.onHand} {row.unit}
@@ -105,8 +109,12 @@ function AdjustForm({ t, token, productId, onDone }: { t: Dictionary; token: str
         {REASONS.map((r) => (
           <button
             key={r.value}
+            type="button"
+            aria-pressed={reason === r.value}
             onClick={() => setReason(r.value)}
-            className={`rounded-full px-3 py-1 text-xs font-medium ${reason === r.value ? 'bg-[var(--brand)] text-white' : 'bg-[var(--card)]'}`}
+            className={`rounded-full px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] ${
+              reason === r.value ? 'bg-[var(--brand)] text-white' : 'bg-[var(--card)] text-[var(--muted)]'
+            }`}
           >
             {r.label}
           </button>

@@ -34,6 +34,9 @@ export interface Dictionary {
     shipping: string;
     grossMargin: string;
     quotaTitle: string;
+    quotaNormal: string;
+    quotaWarningBadge: string;
+    quotaSaverBadge: string;
     quotaWarning: string;
     quotaSaver: string;
     profit: string;
@@ -43,6 +46,7 @@ export interface Dictionary {
   };
   orderDetail: {
     back: string;
+    backAria: string;
     notFound: string;
     items: string;
     weighed: (qty: string) => string;
@@ -54,7 +58,11 @@ export interface Dictionary {
     pricePlaceholder: string;
     notePlaceholder: string;
     confirmPrice: string;
+    marginUnknown: string;
+    marginProfit: (amount: string, pct: string) => string;
+    marginLoss: (amount: string, pct: string) => string;
     negotiationTitle: string;
+    customerOffered: string;
     accept: string;
     hold: string;
     counterPlaceholder: string;
@@ -121,6 +129,7 @@ export interface Dictionary {
   };
   pushButton: {
     enable: string;
+    enableAria: string;
   };
   orderStatus: Record<OrderStatus, string>;
 }

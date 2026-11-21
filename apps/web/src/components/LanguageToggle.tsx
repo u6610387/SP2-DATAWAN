@@ -11,7 +11,7 @@ export function LanguageToggle() {
   const { lang, setLang } = useLanguage();
 
   return (
-    <div role="group" aria-label="Language / ภาษา" className="inline-flex items-center rounded-full border border-[var(--border)] bg-black/5 p-0.5">
+    <div role="group" aria-label="Language / ภาษา" className="inline-flex shrink-0 items-center rounded-full border border-[var(--border)] bg-black/5 p-0.5">
       {OPTIONS.map((opt) => (
         <button
           key={opt.value}
@@ -19,7 +19,7 @@ export function LanguageToggle() {
           aria-pressed={lang === opt.value}
           onClick={() => setLang(opt.value)}
           className={cn(
-            'rounded-full px-2.5 py-1 text-xs font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] focus-visible:ring-offset-1',
+            'min-w-10 rounded-full px-2.5 py-2 text-xs font-semibold leading-none transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] focus-visible:ring-offset-1',
             lang === opt.value ? 'bg-[var(--brand)] text-white' : 'text-[var(--muted)] hover:text-[var(--fg)]',
           )}
         >

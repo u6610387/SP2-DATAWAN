@@ -1,7 +1,10 @@
 'use client';
-/** Owner Web Push opt-in (VAPID). Registers public/sw.js, subscribes, posts to /api/owner/push-subscriptions. */
+/**
+ * Owner Web Push opt-in (VAPID). Icon-only in the header so it doesn't crowd the language
+ * toggle on narrow screens — the action is named via aria-label, not a wide text pill.
+ */
 import { useEffect, useState } from 'react';
-import { Button } from './ui/button';
+import { cn } from '@/lib/cn';
 import { ownerFetch } from '@/lib/api';
 import { useLanguage } from '@/lib/i18n/context';
 import { useOwnerAuth } from '@/lib/ownerAuth';
@@ -13,6 +16,15 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
   const base64Safe = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
   const raw = atob(base64Safe);
   return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+function BellIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
+  );
 }
 
 type Status = 'idle' | 'subscribed' | 'unsupported' | 'denied';
@@ -53,8 +65,17 @@ export function PushSubscribeButton() {
 
   if (status === 'unsupported' || status === 'subscribed') return null;
   return (
-    <Button size="sm" variant="secondary" onClick={subscribe}>
-      {t.pushButton.enable}
-    </Button>
+    <button
+      type="button"
+      title={t.pushButton.enable}
+      aria-label={t.pushButton.enableAria}
+      onClick={subscribe}
+      className={cn(
+        'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--card)] text-[var(--muted)] transition-colors',
+        'hover:text-[var(--brand)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] focus-visible:ring-offset-1',
+      )}
+    >
+      <BellIcon className="h-5 w-5" />
+    </button>
   );
 }
