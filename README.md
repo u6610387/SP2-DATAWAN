@@ -58,7 +58,7 @@ Create the owner login: Supabase Studio → Authentication → Add user → then
 Create in LINE Developers, one set per `APP_ENV` (dev / exhibition / defence):
 1. **Messaging API channel** → copy Channel secret + issue long-lived Channel access token. In LINE OA Manager: turn **auto-reply messages OFF**, **webhooks ON**, greeting off (we send our own).
 2. **LINE Login channel** (same provider) → add a **LIFF app**: size `Full`, endpoint `https://<your-tunnel>/liff`, scopes `openid profile`. Copy LIFF ID.
-3. Get the owner's LINE `userId`: send any message to the bot from the owner account and read it from the worker log → `LINE_OWNER_USER_ID`.
+3. Get the owner's LINE `userId`: send any message to the bot from the owner account and read it from the worker log → `LINE_OWNER_USER_ID`. If the owner uses more than one LINE account/device, repeat and join the IDs with commas (e.g. `Uaaa...,Ubbb...`).
 
 ### 3.3 Run the Worker + tunnel
 ```bash

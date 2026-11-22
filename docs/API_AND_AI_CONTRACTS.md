@@ -186,7 +186,7 @@ Entry: `POST /webhook`
 ### 4.1 Routing
 
 ```
-if event.source.userId == LINE_OWNER_USER_ID  → ownerCommandHandler (text only)
+if event.source.userId in LINE_OWNER_USER_ID  → ownerCommandHandler (text only)  # comma-separated list, parsed to string[] in env.ts
 else → customerRouter(event, user, activeOrder)
 ```
 
