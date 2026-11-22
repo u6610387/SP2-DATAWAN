@@ -8,15 +8,9 @@ import { cn } from '@/lib/cn';
 import { ownerFetch } from '@/lib/api';
 import { useLanguage } from '@/lib/i18n/context';
 import { useOwnerAuth } from '@/lib/ownerAuth';
+import { subscriptionUsesKey, urlBase64ToUint8Array } from '@/lib/vapid';
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-
-function urlBase64ToUint8Array(base64: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
-  const base64Safe = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const raw = atob(base64Safe);
-  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
-}
 
 function BellIcon({ className }: { className?: string }) {
   return (
@@ -42,8 +36,15 @@ export function PushSubscribeButton() {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
     navigator.serviceWorker.ready
       .then((reg) => reg.pushManager.getSubscription())
-      .then((sub) => {
-        if (sub) setStatus('subscribed');
+      .then(async (sub) => {
+        if (!sub) return;
+        // A subscription made with a previous VAPID key can never receive pushes again —
+        // drop it so the bell reappears and the owner can opt in with the current key.
+        if (VAPID_PUBLIC_KEY && !subscriptionUsesKey(sub.options.applicationServerKey, VAPID_PUBLIC_KEY)) {
+          await sub.unsubscribe();
+          return;
+        }
+        setStatus('subscribed');
       })
       .catch(() => {});
   }, []);

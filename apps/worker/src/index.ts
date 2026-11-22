@@ -11,6 +11,10 @@ import { createSupabaseBroadcaster } from './services/realtime';
 import { SupabaseRepo } from './services/repo.supabase';
 import { createSupabaseStorage } from './services/storage';
 import { createWebPushNotifier } from './services/webpush';
+import { auditConfig, summarize } from './services/configAudit';
+
+/** Config audit runs once per isolate, on its first cron tick (see services/configAudit.ts). */
+let configAudited = false;
 
 export function buildDeps(env: Bindings): Deps {
   const cfg = loadConfig(env);
@@ -36,6 +40,15 @@ export default {
     return createApp(buildDeps(env)).fetch(request, env, ctx);
   },
   async scheduled(event: ScheduledController, env: Bindings, ctx: ExecutionContext) {
-    ctx.waitUntil(runScheduled(buildDeps(env), event.cron).then((r) => console.log('[cron]', event.cron, JSON.stringify(r))));
+    const deps = buildDeps(env);
+    ctx.waitUntil(runScheduled(deps, event.cron).then((r) => console.log('[cron]', event.cron, JSON.stringify(r))));
+    if (!configAudited) {
+      configAudited = true;
+      ctx.waitUntil(
+        auditConfig(deps.cfg)
+          .then((r) => console.log('[config-audit]', JSON.stringify(summarize(r))))
+          .catch((e) => console.error('[config-audit] failed', (e as Error).message)),
+      );
+    }
   },
 };

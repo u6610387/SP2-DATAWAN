@@ -102,10 +102,16 @@ export interface Dictionary {
   liff: {
     orderLabel: (code: string) => string;
     loggingIn: string;
+    /** /liff endpoint page while LIFF forwards to the order room (liff.state present). */
+    openingOrder: string;
+    /** /liff opened with no order path — e.g. from the OA menu or a bare LIFF link. */
+    openFromCard: string;
     loginError: (msg: string) => string;
     notFound: string;
     genericError: string;
     items: string;
+    /** Items card when the order has no recognised items yet (owner is reviewing). */
+    noItems: string;
     deliverTo: (addr: string) => string;
     ownerDelayed: string;
     awaitingPrice: string;
