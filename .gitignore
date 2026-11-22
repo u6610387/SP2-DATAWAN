@@ -14,3 +14,5 @@ eval/raw/
 eval/results/**/predictions.jsonl
 supabase/.temp/
 *.env.local
+.open-next/
+apps/web/cloudflare-env.d.ts

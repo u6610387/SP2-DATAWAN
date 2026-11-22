@@ -1,0 +1,24 @@
+# apps/web on Cloudflare Workers via OpenNext (@opennextjs/cloudflare). Free plan, no paid bindings.
+# Build + deploy:  pnpm --filter @datawan/web run deploy
+# NEXT_PUBLIC_* values are inlined at BUILD time (next build), not read from Worker vars —
+# supply them via apps/web/.env.production.local or the shell before building. See .env.example.
+name = "datawan-web-production"
+main = ".open-next/worker.js"
+compatibility_date = "2026-11-01"
+compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
+
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
+# OpenNext calls back into its own Worker (e.g. for cache revalidation). Must match `name`.
+[[services]]
+binding = "WORKER_SELF_REFERENCE"
+service = "datawan-web-production"
+
+# No R2 incremental cache: every page is a client component with no ISR/fetch caching,
+# and R2 would add a bucket to manage. Add NEXT_INC_CACHE_R2_BUCKET here if that changes.
+# No IMAGES binding: the app does not use next/image.
+
+[observability]
+enabled = true

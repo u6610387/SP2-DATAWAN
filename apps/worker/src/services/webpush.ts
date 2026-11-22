@@ -68,6 +68,24 @@ async function importVapidPrivateKey(privateKeyB64url: string, publicKeyB64url: 
   return crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
 }
 
+/**
+ * Config audit helper: does VAPID_PRIVATE_KEY actually belong to VAPID_PUBLIC_KEY?
+ * Signs with the private key and verifies with the raw public key — a mismatched pair fails.
+ */
+export async function vapidKeyPairMatches(privateKeyB64url: string, publicKeyB64url: string): Promise<boolean> {
+  try {
+    const pubRaw = b64urlDecode(publicKeyB64url);
+    if (pubRaw.length !== 65 || pubRaw[0] !== 0x04) return false;
+    const priv = await importVapidPrivateKey(privateKeyB64url, publicKeyB64url);
+    const pub = await crypto.subtle.importKey('raw', bs(pubRaw), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+    const msg = bs(utf8('datawan-config-audit'));
+    const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, priv, msg);
+    return await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, pub, sig, msg);
+  } catch {
+    return false;
+  }
+}
+
 /** `Authorization: vapid t=<jwt>, k=<publicKey>` per RFC 8292. */
 export async function vapidAuthHeader(endpoint: string, cfg: Pick<Config, 'VAPID_PUBLIC_KEY' | 'VAPID_PRIVATE_KEY' | 'VAPID_SUBJECT'>): Promise<string> {
   const aud = new URL(endpoint).origin;

@@ -69,6 +69,7 @@ function OrderRoom({ orderId, auth }: { orderId: string; auth: { idToken: string
 
       <Card>
         <CardTitle>{t.liff.items}</CardTitle>
+        {order.items.length === 0 && <p className="mt-2 text-sm text-[var(--muted)]">{t.liff.noItems}</p>}
         <ul className="mt-2 space-y-1 text-sm">
           {order.items.map((it) => (
             <li key={it.id} className="flex justify-between">

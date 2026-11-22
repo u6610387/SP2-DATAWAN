@@ -58,6 +58,19 @@ function deliveryText(parse: ResolvedOrderParse | null): string | null {
   return `${parse.delivery_time.raw_text ?? ''} (${bangkokHHMM(parse.delivery_time.iso)} น.)`.trim();
 }
 
+/**
+ * The customer clearly wants to order, but no catalog product matched (e.g. "กุ้ง 2 โล" with no
+ * "กุ้ง" alias). Code can't resolve this — flag it so the owner decides (CLAUDE.md §3.1).
+ */
+function noProductRecognised(parse: ResolvedOrderParse, items: NewOrderItem[]): boolean {
+  return ['new_order', 'modify', 'reorder'].includes(parse.intent) && items.length === 0 && parse.missing_fields.includes('product');
+}
+
+async function alertUnrecognisedProduct(deps: Deps, order: OrderRow, text: string): Promise<void> {
+  const snippet = text.length > 60 ? `${text.slice(0, 60)}…` : text;
+  await deps.notifier.notify({ kind: 'NEEDS_REVIEW', orderId: order.id, code: order.code, reason: `no catalog product matched: "${snippet}"` });
+}
+
 function asParse(v: unknown): ResolvedOrderParse | null {
   return v && typeof v === 'object' && 'items' in v ? (v as ResolvedOrderParse) : null;
 }
@@ -112,20 +125,23 @@ export async function createOrderFromParse(
   products: ProductRow[],
   sourceOrderId: string | null,
 ): Promise<{ order: OrderRow; messages: LineMessage[] }> {
+  const items = toNewItems(parse, products);
+  const unrecognised = noProductRecognised(parse, items);
   const order = await deps.repo.createOrder(
     {
       user_id: user.id,
       raw_order_text: text,
       ai_parse: parse,
-      needs_owner_review: warnings.length > 0,
+      needs_owner_review: warnings.length > 0 || unrecognised,
       channel: 'chat',
       source_order_id: parse.intent === 'reorder' ? sourceOrderId : null,
       requested_delivery_at: parse.delivery_time.iso,
     },
-    toNewItems(parse, products),
+    items,
   );
   await deps.repo.setActiveOrder(user.id, order.id);
-  await logEvent(deps, order, 'customer', 'ORDER_CREATED', { intent: parse.intent, warnings });
+  await logEvent(deps, order, 'customer', 'ORDER_CREATED', { intent: parse.intent, warnings, ...(unrecognised ? { unrecognisedProduct: true } : {}) });
+  if (unrecognised) await alertUnrecognisedProduct(deps, order, text);
   return { order, messages: await confirmOrAsk(deps, order, parse) };
 }
 
@@ -157,14 +173,18 @@ async function editDraft(deps: Deps, user: UserRow, order: OrderRow, text: strin
   if (!r.ok) return reply(deps, replyToken, [await statusReply(deps, order)]);
   const { parse, warnings } = r.data;
   if (parse.intent === 'not_order' || parse.intent === 'question') return reply(deps, replyToken, [await statusReply(deps, order)]);
-  await deps.repo.replaceItems(order.id, toNewItems(parse, products));
+  const items = toNewItems(parse, products);
+  const unrecognised = noProductRecognised(parse, items);
+  await deps.repo.replaceItems(order.id, items);
   const res = await applyEvent(deps, order, 'CUSTOMER_EDIT', 'customer', {
     ai_parse: parse,
-    needs_owner_review: order.needs_owner_review || warnings.length > 0,
+    needs_owner_review: order.needs_owner_review || warnings.length > 0 || unrecognised,
     requested_delivery_at: parse.delivery_time.iso ?? order.requested_delivery_at,
     raw_order_text: `${order.raw_order_text ?? ''}\n${text}`.trim(),
   });
   if (!res.ok) return reply(deps, replyToken, [await statusReply(deps, order)]);
+  // Alert once per order: only when this edit is what first flags it.
+  if (unrecognised && !order.needs_owner_review) await alertUnrecognisedProduct(deps, res.order, text);
   return reply(deps, replyToken, await confirmOrAsk(deps, res.order, parse));
 }
 

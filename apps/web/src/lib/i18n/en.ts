@@ -95,10 +95,13 @@ export const en: Dictionary = {
   liff: {
     orderLabel: (code) => `Order ${code}`,
     loggingIn: 'Signing in...',
+    openingOrder: 'Opening your order...',
+    openFromCard: 'Please open your order from the order card in the LINE chat.',
     loginError: (msg) => `Sign-in failed: ${msg}`,
     notFound: 'Order not found',
     genericError: 'Something went wrong — please try again',
     items: 'Items',
+    noItems: "We couldn't match your items yet — the shop will check and confirm in the chat.",
     deliverTo: (addr) => `Deliver to: ${addr}`,
     ownerDelayed: "The shop is still checking your price — thanks for waiting! 🙏",
     awaitingPrice: 'The shop is checking stock and price — please wait a moment.',
