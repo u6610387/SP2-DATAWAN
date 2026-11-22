@@ -56,7 +56,7 @@ All B2C features, plus:
 - Several open orders at once (see §6.2).
 
 ### 3.3 Shop owner
-**Via LINE (owner's own LINE account, identified by `LINE_OWNER_USER_ID`)**: every owner message is answered with that message's free `replyToken`.
+**Via LINE (owner's own LINE account(s), identified by `LINE_OWNER_USER_ID`, a comma-separated list)**: every owner message is answered with that message's free `replyToken`.
 
 | Command | Meaning |
 |---|---|

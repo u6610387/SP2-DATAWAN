@@ -464,7 +464,7 @@ create policy owner_upload_bills on storage.objects
 
 ### 2.1 Notes on the schema
 - **Owner account:** create one Supabase Auth user and set `app_metadata.role = 'owner'` (Dashboard → Authentication → user → edit raw app metadata, or `auth.admin.updateUserById`).
-- **`paid_needs_owner` constraint + `guard_order_status` trigger** make it impossible, even by a bug, to mark an order `PAID`/`DELIVERING`/`DELIVERED` without an owner ID. The Worker sets `paid_confirmed_by` only from an owner-authenticated request or a message from `LINE_OWNER_USER_ID`.
+- **`paid_needs_owner` constraint + `guard_order_status` trigger** make it impossible, even by a bug, to mark an order `PAID`/`DELIVERING`/`DELIVERED` without an owner ID. The Worker sets `paid_confirmed_by` only from an owner-authenticated request or a message from one of the userIds in `LINE_OWNER_USER_ID` (comma-separated).
 - **Order code:** the Worker generates `code` as `A` + (`order_no` mod 1000), skipping codes still open; unique among open orders only, so codes stay short for LINE commands.
 - **Stock:** `product_stock` view sums the ledger. On `DELIVERED`, the Worker writes one `sale` row per item with `qty_delta = -(actual_qty ?? qty)` in the same transaction as the status change, `created_by` = owner.
 - **Retention:** daily cron lists objects older than `STORAGE_RETENTION_DAYS` (60) via the Storage API and deletes them; DB rows keep `slip_path` but the UI shows "รูปถูกลบตามนโยบาย 60 วัน". Use the Storage API, not `DELETE FROM storage.objects`, so files are actually removed.

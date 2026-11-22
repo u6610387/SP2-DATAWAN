@@ -40,7 +40,7 @@ Signature: HMAC-SHA256 over the **raw body** with the channel secret, base64, co
 ```ts
 async function routeEvent(c, ev) {
   if (ev.source.type !== 'user') return;
-  if (ev.source.userId === c.env.LINE_OWNER_USER_ID) return ownerHandler(c, ev);
+  if (isOwnerLineUser(cfg, ev.source.userId)) return ownerHandler(c, ev); // cfg = loadConfig(c.env); LINE_OWNER_USER_ID: comma-separated → string[]
   const user = await upsertUser(c, ev.source.userId);
   const open = await openOrders(c, user.id);                 // non-final, newest first
   const active = open.find(o => o.id === user.active_order_id) ?? open[0] ?? null;
