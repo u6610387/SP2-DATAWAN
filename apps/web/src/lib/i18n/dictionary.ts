@@ -129,6 +129,16 @@ export interface Dictionary {
     /** Items card when the order has no recognised items yet (owner is reviewing). */
     noItems: string;
     deliverTo: (addr: string) => string;
+    recipientTitle: string;
+    recipientRequiredHint: string;
+    recipientNameLabel: string;
+    recipientPhoneLabel: string;
+    recipientPhoneInvalid: string;
+    recipientConsent: string;
+    recipientSave: string;
+    recipientEdit: string;
+    recipientCancel: string;
+    recipientSummary: (name: string, phone: string) => string;
     ownerDelayed: string;
     awaitingPrice: string;
     priceTitle: string;

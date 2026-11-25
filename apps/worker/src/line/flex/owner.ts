@@ -30,13 +30,16 @@ export function ownerText(t: string): Msg {
 
 /** Copy-ready Lalamove card (step 5): the owner pastes this into the Lalamove app. */
 export function lalamoveCardText(order: OrderRow, address: AddressRow | null, user: UserRow | null): string {
-  const name = order.recipient_name ?? user?.full_name ?? user?.display_name ?? '-';
-  const phone = order.recipient_phone ?? user?.phone ?? '-';
+  const name = (order.recipient_name ?? user?.full_name ?? '').trim();
+  const phone = (order.recipient_phone ?? user?.phone ?? '').trim();
   const map = address ? mapUrl(address.lat, address.lng) : null;
   return [
     `📦 ${order.code} — Lalamove`,
-    `ผู้รับ: ${name}`,
-    `โทร: ${phone}`,
+    // Only real values (pasted straight into Lalamove). Older orders created before the recipient
+    // step say so explicitly instead of a "-" the owner might paste by mistake.
+    ...(name ? [`ผู้รับ: ${name}`] : []),
+    ...(phone ? [`โทร: ${phone}`] : []),
+    ...(!name || !phone ? ['⚠️ ยังไม่มีชื่อ/เบอร์ผู้รับ — ให้ลูกค้ากรอกในลิงก์ออเดอร์ หรือโทรถามก่อนเรียกไรเดอร์'] : []),
     `ที่อยู่: ${address?.address_text ?? '(ดูจากหมุด)'}`,
     ...(map ? [`แผนที่: ${map}`] : []),
     ...(order.requested_delivery_at ? [`เวลาส่ง: ${bangkokHHMM(order.requested_delivery_at)} น.`] : []),

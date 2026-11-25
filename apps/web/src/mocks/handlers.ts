@@ -66,7 +66,7 @@ function applyShipping(o: OwnerOrderView, body: { feeSatang: number }) {
   o.paymentExpiresAt = new Date(Date.now() + 45 * 60_000).toISOString();
   o.promptpayPayload = '00020101021129370016A000000677010111011300668123456785802TH53037645406' + (o.totalSatang / 100).toFixed(2);
   o.lalamoveCard = {
-    text: `📦 ${o.code} — Lalamove\nผู้รับ: ${o.delivery.recipientName ?? '-'}\nที่อยู่: ${o.delivery.addressText ?? '-'}`,
+    text: [`📦 ${o.code} — Lalamove`, ...(o.delivery.recipientName ? [`ผู้รับ: ${o.delivery.recipientName}`] : []), ...(o.delivery.recipientPhone ? [`โทร: ${o.delivery.recipientPhone}`] : []), ...(o.delivery.recipientName && o.delivery.recipientPhone ? [] : ['⚠️ ยังไม่มีชื่อ/เบอร์ผู้รับ']), `ที่อยู่: ${o.delivery.addressText ?? '(ดูจากหมุด)'}`].join('\n'),
     mapUrl: o.delivery.lat !== null && o.delivery.lng !== null ? `https://www.google.com/maps/search/?api=1&query=${o.delivery.lat},${o.delivery.lng}` : null,
   };
 }

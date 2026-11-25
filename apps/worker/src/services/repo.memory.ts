@@ -64,6 +64,10 @@ export class MemoryRepo implements Repo {
     const u = this.users.find((x) => x.id === userId);
     if (u) u.active_order_id = orderId;
   }
+  async updateUserContact(userId: string, patch: { full_name: string; phone: string; pdpa_consent_at?: string }) {
+    const u = this.users.find((x) => x.id === userId);
+    if (u) Object.assign(u, patch);
+  }
   async markUserInactive(userId: string) {
     const u = this.users.find((x) => x.id === userId);
     if (u) u.is_active = false;
@@ -174,6 +178,10 @@ export class MemoryRepo implements Repo {
     const row = { id: this.id(), created_at: this.ts(), label: null, is_default: false, ...a };
     this.addresses.push(row);
     return { ...row };
+  }
+  async setAddressRecipient(id: string, patch: { recipient_name: string; recipient_phone: string }) {
+    const a = this.addresses.find((x) => x.id === id);
+    if (a) Object.assign(a, patch);
   }
   async getAddress(id: string) {
     const a = this.addresses.find((x) => x.id === id);

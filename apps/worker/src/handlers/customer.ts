@@ -16,7 +16,8 @@ import {
 import type { Deps } from '../deps';
 import type { LineMessage } from '../line/api';
 import * as flex from '../line/flex';
-import { applyEvent, logEvent, resolveActiveOrder } from '../services/orders';
+import { applyEvent, logEvent, patchOrder, resolveActiveOrder } from '../services/orders';
+import { completeLocation, profileHasRecipient } from '../services/recipient';
 import * as actions from '../services/orderActions';
 import { isMapsUrl, looksLikeAddress, parseMapsLink } from '../services/location';
 import { suggestPrice } from '../services/pricing';
@@ -217,31 +218,29 @@ async function setLocation(
   }
   if (current.status !== 'AWAITING_LOCATION') return reply(deps, replyToken, [await statusReply(deps, current)]);
 
+  // Recipient comes from the saved profile (repeat customers). LINE display names are not a
+  // recipient: the rider needs a real name + phone.
+  const hasRecipient = profileHasRecipient(user);
   const address = await deps.repo.insertAddress({
     user_id: user.id,
-    recipient_name: user.full_name ?? user.display_name,
-    recipient_phone: user.phone,
+    recipient_name: hasRecipient ? user.full_name : null,
+    recipient_phone: hasRecipient ? user.phone : null,
     address_text: loc.addressText,
     lat: loc.lat,
     lng: loc.lng,
     source: loc.source,
   });
-  const res = await applyEvent(deps, current, 'LOCATION_SET', 'customer', {
+  if (!hasRecipient) {
+    // Keep the order out of the shop's queue until the customer fills name + phone in LIFF.
+    const held = await patchOrder(deps, current, { address_id: address.id });
+    return reply(deps, replyToken, [flex.recipientNeededMessage(held ?? current, deps.cfg.LIFF_ID)]);
+  }
+  const res = await completeLocation(deps, current, {
     address_id: address.id,
     recipient_name: address.recipient_name,
     recipient_phone: address.recipient_phone,
   });
   if (!res.ok) return reply(deps, replyToken, [await statusReply(deps, current)]);
-
-  const items = await deps.repo.getItems(res.order.id);
-  const s = await suggestPrice(deps, res.order, items);
-  await deps.notifier.notify({
-    kind: 'NEW_ORDER',
-    orderId: res.order.id,
-    code: res.order.code,
-    summary: flex.newOrderSummary(res.order, withNames(items, await deps.repo.listActiveProducts())),
-    suggestedPriceSatang: s.b2bAnchorSatang ?? s.suggestedSatang,
-  });
   return reply(deps, replyToken, [flex.locationReceivedMessage(res.order, deps.cfg.LIFF_ID)]);
 }
 

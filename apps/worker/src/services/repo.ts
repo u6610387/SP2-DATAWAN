@@ -61,6 +61,8 @@ export interface Repo {
   getUser(id: string): Promise<UserRow | null>;
   setActiveOrder(userId: string, orderId: string | null): Promise<void>;
   markUserInactive(userId: string): Promise<void>;
+  /** Saved recipient contact (PII; Supabase only). */
+  updateUserContact(userId: string, patch: { full_name: string; phone: string; pdpa_consent_at?: string }): Promise<void>;
 
   listActiveProducts(): Promise<ProductRow[]>;
 
@@ -85,6 +87,7 @@ export interface Repo {
 
   insertAddress(a: NewAddress): Promise<AddressRow>;
   getAddress(id: string): Promise<AddressRow | null>;
+  setAddressRecipient(id: string, patch: { recipient_name: string; recipient_phone: string }): Promise<void>;
 
   listNegotiations(orderId: string): Promise<NegotiationRow[]>;
   insertNegotiation(n: NewNegotiation): Promise<NegotiationRow>;

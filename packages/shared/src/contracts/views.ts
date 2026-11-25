@@ -37,6 +37,12 @@ export interface CustomerOrderView {
   negotiation: NegotiationView[];
   delivery: {
     recipientName: string | null;
+    /** Normalised Thai phone (own order only; owner view adds it too). */
+    recipientPhone: string | null;
+    /** A location/address has been received for this order. */
+    hasLocation: boolean;
+    /** True while the shop can't see the order yet because the recipient name/phone is missing. */
+    needsRecipient: boolean;
     addressText: string | null;
     lat: number | null;
     lng: number | null;

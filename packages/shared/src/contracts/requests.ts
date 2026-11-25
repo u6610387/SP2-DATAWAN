@@ -3,6 +3,7 @@
  * One Zod schema per endpoint body; routes validate with these before touching the DB.
  */
 import { z } from 'zod';
+import { normalizeThaiPhone } from '../phone';
 
 export const SetPriceRequest = z.object({
   amountSatang: z.number().int().positive(),
@@ -52,6 +53,24 @@ export const CancelOrderRequest = z.object({
   reason: z.string().trim().min(1).max(200),
 });
 export type CancelOrderRequest = z.infer<typeof CancelOrderRequest>;
+
+/**
+ * Customer sets the delivery recipient (LIFF). Required before an order reaches the shop when
+ * the profile has no name/phone; saved to the profile so repeat orders are pre-filled.
+ */
+export const RecipientContactRequest = z.object({
+  recipientName: z.string().trim().min(1).max(100),
+  recipientPhone: z.string().max(32).transform((v, ctx) => {
+    const n = normalizeThaiPhone(v);
+    if (!n) {
+      ctx.addIssue({ code: 'custom', message: 'recipientPhone must be a Thai phone number (9–10 digits starting with 0)' });
+      return z.NEVER;
+    }
+    return n;
+  }),
+  pdpaConsent: z.literal(true),
+});
+export type RecipientContactRequest = z.infer<typeof RecipientContactRequest>;
 
 /** Text of the Mini-QR the owner's device decoded from the stored slip image; null = no QR found. */
 export const SlipQrRequest = z.object({

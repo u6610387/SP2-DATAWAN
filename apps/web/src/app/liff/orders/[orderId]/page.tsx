@@ -5,6 +5,7 @@ import useSWR from 'swr';
 import { bahtToSatang, formatTHB, type CustomerOrderView } from '@datawan/shared';
 import { Countdown } from '@/components/Countdown';
 import { PromptPayQR } from '@/components/PromptPayQR';
+import { RecipientCard, showRecipientCard } from '@/components/RecipientCard';
 import { Button } from '@/components/ui/button';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -91,6 +92,18 @@ function OrderRoom({ orderId, auth }: { orderId: string; auth: { idToken: string
       </Card>
 
       {actionError && <p className="rounded-xl bg-[var(--red-bg)] p-3 text-sm text-[var(--red)]">{actionError}</p>}
+
+      {showRecipientCard(order) && (
+        <RecipientCard
+          key={`${order.id}-${order.delivery.recipientName ?? ''}-${order.delivery.recipientPhone ?? ''}`}
+          order={order}
+          t={t}
+          busy={busy}
+          onSave={(recipientName, recipientPhone) =>
+            run(() => liffFetch(`/api/liff/orders/${orderId}/recipient`, auth, { method: 'POST', body: { recipientName, recipientPhone, pdpaConsent: true }, ifMatch: order.version }))
+          }
+        />
+      )}
 
       {order.status === 'AWAITING_PRICE' && <Card>{t.liff.awaitingPrice}</Card>}
 

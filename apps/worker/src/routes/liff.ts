@@ -5,10 +5,12 @@
  */
 import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
-import { CounterOfferRequest, SlipSubmitRequest, SlipUploadUrlRequest, type CustomerOrderView, type OrderRow, type UserRow } from '@datawan/shared';
+import {
+  RecipientContactRequest, CounterOfferRequest, SlipSubmitRequest, SlipUploadUrlRequest, type CustomerOrderView, type OrderRow, type UserRow } from '@datawan/shared';
 import type { Deps } from '../deps';
 import type { Bindings } from '../env';
 import * as actions from '../services/orderActions';
+import { setRecipient } from '../services/recipient';
 import { splitPath } from '../services/storage';
 import { toCustomerOrderView } from '../services/views';
 import { apiError, checkIfMatch, conflictError } from './respond';
@@ -91,6 +93,20 @@ export function createLiffRoutes(deps: Deps) {
       if (r.reason === 'COUNTER_TOO_HIGH') return apiError(c, 'VALIDATION_FAILED', 'counter must be lower than the current offer', 400);
       return conflictError(c, r.reason, r.order);
     }
+    return c.json(await buildCustomerView(deps, r.order));
+  });
+
+  // Delivery recipient (name + Thai phone). Submits a held order to the shop when it was the
+  // only thing missing; otherwise just updates it. Saved to the profile for next time.
+  app.post('/orders/:id/recipient', async (c) => {
+    const order = await getOwnOrder(c, deps);
+    if (order instanceof Response) return order;
+    const conflict = checkIfMatch(c, order);
+    if (conflict) return conflict;
+    const parsed = RecipientContactRequest.safeParse(await readJson(c));
+    if (!parsed.success) return apiError(c, 'VALIDATION_FAILED', parsed.error.issues.map((i) => i.message).join('; '), 400);
+    const r = await setRecipient(deps, order, c.get('user'), { name: parsed.data.recipientName, phone: parsed.data.recipientPhone });
+    if (!r.ok) return conflictError(c, r.reason, r.order);
     return c.json(await buildCustomerView(deps, r.order));
   });
 

@@ -31,6 +31,11 @@ export function locationAskMessage(order: OrderRow, liffId: string): Msg {
   ]));
 }
 
+/** Location in, recipient missing: ask for name + phone in LIFF (reply, free). */
+export function recipientNeededMessage(order: OrderRow, liffId: string): Msg {
+  return textMsg(`${th.recipientNeeded}\n${orderLiffUrl(liffId, order.id)}`);
+}
+
 export function locationReceivedMessage(order: OrderRow, liffId: string): Msg {
   return textMsg(`${th.locationReceived}\n${orderLiffUrl(liffId, order.id)}`);
 }
