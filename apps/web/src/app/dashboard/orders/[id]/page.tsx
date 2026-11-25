@@ -33,7 +33,13 @@ export default function OrderDetailPage() {
       await fn();
       await mutate();
     } catch (e) {
-      setActionError(e instanceof ApiRequestError ? e.message : t.common.error);
+      // 409: refetch so the owner sees the current state and version; never auto-retry.
+      if (e instanceof ApiRequestError && e.status === 409) {
+        await mutate();
+        setActionError(t.common.orderChanged);
+      } else {
+        setActionError(e instanceof ApiRequestError ? e.message : t.common.error);
+      }
     } finally {
       setBusy(false);
     }

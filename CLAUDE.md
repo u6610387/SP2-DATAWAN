@@ -121,7 +121,8 @@ da-tawan-seafood/
     ├── seafood-domain-rules/
     ├── line-liff-architect/
     ├── gemini-structured-pipeline/
-    └── ai-eval-benchmark/
+    ├── ai-eval-benchmark/
+    └── e2e-system-test/      ← release gate: `pnpm verify` before PR/merge/deploy
 ```
 
 ---
@@ -141,9 +142,10 @@ da-tawan-seafood/
 1. Read this file, then the relevant `docs/*.md`, then load the matching skill in `.claude/skills/`.
 2. Before writing code that touches money, payment, stock or order status → apply `seafood-domain-rules`.
 3. LINE / LIFF / webhook work → `line-liff-architect`. Gemini work → `gemini-structured-pipeline`. Accuracy reports → `ai-eval-benchmark`.
+   **Before opening any PR, merging to `main`, or deploying anything to production (worker, web or a Supabase migration) → `e2e-system-test`.** Run `pnpm verify` (typecheck + all tests + the E2E lifecycle and web↔worker contract suites) on the exact commit being shipped, and report its result. If it fails, nothing ships.
 4. If a request would break a rule in §3, say so and propose a compliant alternative instead of implementing it.
 5. When a contract in `packages/shared/src/contracts/` must change, update `docs/API_AND_AI_CONTRACTS.md` in the same PR.
-6. **Skill priority:** our 4 project domain skills — `seafood-domain-rules`, `line-liff-architect`, `gemini-structured-pipeline`, `ai-eval-benchmark` — always take priority over general-purpose, UI, or vendor/infrastructure skills. This includes both general workflow skills (e.g. `impeccable`, `superpowers`) and the vendor infra skills added for the integration phase (e.g. `cf-cli`, `supabase`, `supabase-postgres-best-practices`, `gemini-api-dev`). A vendor skill is useful for its tool's mechanics (CLI flags, client SDK usage, generic Postgres/RLS technique) but has no knowledge of this project's rules; if its guidance ever conflicts with a domain skill or with CLAUDE.md §3 — e.g. a generic "simplify RLS" suggestion that would weaken `is_owner()` checks, or a Gemini pattern that skips `stripPII()` — the domain skill and §3 win, every time.
+6. **Skill priority:** our 5 project skills — `seafood-domain-rules`, `line-liff-architect`, `gemini-structured-pipeline`, `ai-eval-benchmark`, `e2e-system-test` — always take priority over general-purpose, UI, or vendor/infrastructure skills. This includes both general workflow skills (e.g. `impeccable`, `superpowers`) and the vendor infra skills added for the integration phase (e.g. `cf-cli`, `supabase`, `supabase-postgres-best-practices`, `gemini-api-dev`). A vendor skill is useful for its tool's mechanics (CLI flags, client SDK usage, generic Postgres/RLS technique) but has no knowledge of this project's rules; if its guidance ever conflicts with a domain skill or with CLAUDE.md §3 — e.g. a generic "simplify RLS" suggestion that would weaken `is_owner()` checks, or a Gemini pattern that skips `stripPII()` — the domain skill and §3 win, every time.
 
 ---
 

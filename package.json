@@ -9,7 +9,9 @@
   "scripts": {
     "typecheck": "pnpm -r --parallel typecheck",
     "test": "pnpm -r test",
-    "dev:worker": "pnpm --filter @datawan/worker dev"
+    "dev:worker": "pnpm --filter @datawan/worker dev",
+    "e2e": "pnpm --filter @datawan/worker test:e2e",
+    "verify": "pnpm typecheck && pnpm test && pnpm e2e"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

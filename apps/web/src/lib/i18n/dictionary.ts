@@ -14,6 +14,8 @@ export interface Dictionary {
     error: string;
     tryAgain: string;
     copy: string;
+    /** 409: the order changed since this screen loaded; the screen has been refreshed. */
+    orderChanged: string;
   };
   nav: {
     home: string;

@@ -46,7 +46,14 @@ function OrderRoom({ orderId, auth }: { orderId: string; auth: { idToken: string
       await fn();
       await mutate();
     } catch (e) {
-      setActionError(e instanceof ApiRequestError ? e.message : t.liff.genericError);
+      // 409: the order moved on (owner acted, or the version is stale). Refetch right away so the
+      // screen and its order.version are current; never auto-retry the customer's action.
+      if (e instanceof ApiRequestError && e.status === 409) {
+        await mutate();
+        setActionError(t.common.orderChanged);
+      } else {
+        setActionError(e instanceof ApiRequestError ? e.message : t.liff.genericError);
+      }
     } finally {
       setBusy(false);
     }

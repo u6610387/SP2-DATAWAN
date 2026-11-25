@@ -6,6 +6,7 @@ export const en: Dictionary = {
     loading: 'Loading...',
     error: 'Something went wrong',
     tryAgain: 'Please try again',
+    orderChanged: 'This order was just updated. Please check the latest details and try again.',
     copy: 'Copy',
   },
   nav: {
