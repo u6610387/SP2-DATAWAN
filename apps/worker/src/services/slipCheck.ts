@@ -10,7 +10,12 @@ export interface SlipCheckContext {
   promptpayId: string;
   referenceAlreadyUsed: boolean;
   now: Date;
+  /** GEMINI_SLIP_MODE=manual: no AI read was attempted (CLAUDE.md D1), the owner checks the image. */
+  manualReview?: boolean;
 }
+
+/** Shown on every slip in manual mode: nothing failed, the slip simply isn't read by AI. */
+export const SLIP_MANUAL_REVIEW_DETAIL = 'ตรวจด้วยตนเอง: ระบบไม่ได้อ่านสลิปอัตโนมัติ กรุณาตรวจยอดเงิน เวลา และชื่อผู้รับจากรูปสลิป';
 
 export interface SlipCheckOutcome {
   result: CheckLevel;
@@ -40,6 +45,10 @@ export function receiverMatches(printed: string, expectedName: string, promptpay
 
 export function checkSlip(slip: SlipReadResult | null, ctx: SlipCheckContext): SlipCheckOutcome {
   const checks: SlipCheck[] = [];
+  if (!slip && ctx.manualReview) {
+    checks.push({ rule: 'READABLE', result: 'WARN', detail: SLIP_MANUAL_REVIEW_DETAIL });
+    return { result: 'WARN', checks };
+  }
   if (!slip || !slip.is_slip) {
     checks.push({ rule: 'READABLE', result: 'WARN', detail: 'อ่านสลิปไม่ได้ ให้เจ้าของร้านตรวจจากรูป' });
     return { result: 'WARN', checks };

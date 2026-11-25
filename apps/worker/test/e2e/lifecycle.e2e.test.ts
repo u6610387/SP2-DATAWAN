@@ -26,6 +26,7 @@ import { loadConfig } from '../../src/env';
 import { signLineBody } from '../../src/line/signature';
 import { RecordingNotifier } from '../../src/services/notifier';
 import { RecordingBroadcaster } from '../../src/services/realtime';
+import { SLIP_MANUAL_REVIEW_DETAIL } from '../../src/services/slipCheck';
 import { SupabaseRepo } from '../../src/services/repo.supabase';
 import { MemoryStorage } from '../../src/services/storage';
 import { CUSTOMER_LINE, FakeAuth, FakeLine, findPostback, LIFF_TOKEN, OWNER_AUTH, OWNER_LINE, OWNER_TOKEN, SECRET } from '../harness';
@@ -39,6 +40,7 @@ let app: ReturnType<typeof createApp>;
 let web: WebApi;
 let line: FakeLine;
 let realtime: RecordingBroadcaster;
+let storage: MemoryStorage;
 const sent: { method: string; path: string; ifMatch: string | null }[] = [];
 const liffAuth = { idToken: LIFF_TOKEN, devUser: null };
 
@@ -53,6 +55,7 @@ beforeAll(async () => {
     PROMPTPAY_ID: '0812345678',
     PROMPTPAY_RECEIVER_NAME: 'ดา ทะวัน',
     USE_MOCK_AI: 'true',
+    GEMINI_SLIP_MODE: 'manual', // same as [env.production.vars]
   });
   const supabase = createClient('http://supabase.e2e', 'service-role-e2e', {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -63,10 +66,11 @@ beforeAll(async () => {
   auth.liffUsers.set(LIFF_TOKEN, CUSTOMER_LINE);
   line = new FakeLine();
   realtime = new RecordingBroadcaster();
+  storage = new MemoryStorage();
   const now = () => new Date();
   const deps: Deps = {
     cfg, repo: new SupabaseRepo(supabase), line, notifier: new RecordingNotifier(), realtime, auth,
-    ai: createAi(cfg, {}, now), storage: new MemoryStorage(), now,
+    ai: createAi(cfg, {}, now), storage, now,
   };
   app = createApp(deps);
 
@@ -245,5 +249,52 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     const changing = sent.filter((s) => s.method === 'POST' && !s.path.endsWith('/heartbeat'));
     expect(changing.length).toBeGreaterThan(10);
     for (const s of changing) expect(s.ifMatch, `${s.method} ${s.path}`).toMatch(/^\d+$/);
+  }, 60_000);
+
+  // Regression (production A5): in GEMINI_SLIP_MODE=manual the slip is never read by AI, the
+  // check is WARN, and the owner must be able to see the uploaded image to decide.
+  it('slip upload in manual mode: WARN "check it yourself", image URL in the owner view, owner confirms with a reason', async () => {
+    await customerText('ปูม้า 1 โล');
+    const id = (await db.query<{ id: string }>(`select id from orders where status = 'AWAITING_CONFIRMATION'`)).rows[0]!.id;
+    await webhook(CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'confirm') } });
+    await webhook(CUSTOMER_LINE, { type: 'message', message: { id: `m${seq + 1}`, type: 'location', latitude: 13.72, longitude: 100.47, address: 'ตลาดสดธนบุรี' } });
+    let own = await ownerGet(id);
+    await web.ownerFetch(`/api/owner/orders/${id}/price`, OWNER_TOKEN, { method: 'POST', body: { amountSatang: 100 }, ifMatch: own.version });
+    let cust = await liffGet(id);
+    await web.liffFetch(`/api/liff/orders/${id}/accept`, liffAuth, { method: 'POST', ifMatch: cust.version });
+    own = await ownerGet(id);
+    await web.ownerFetch(`/api/owner/orders/${id}/shipping`, OWNER_TOKEN, { method: 'POST', body: { feeSatang: 0 }, ifMatch: own.version });
+    let v = await agreedVersion(id, 'AWAITING_PAYMENT');
+
+    // LIFF: ask for an upload URL, the browser PUTs the file there (MemoryStorage stands in for
+    // Supabase Storage), then submits the path — same calls as the order room.
+    const { path } = await web.liffFetch<{ uploadUrl: string; path: string }>(`/api/liff/orders/${id}/slip-upload-url`, liffAuth, { method: 'POST', body: { contentType: 'image/jpeg' } });
+    expect(path).toMatch(new RegExp(`^slips/${id}/[0-9a-f-]+\\.jpeg$`));
+    const [bucket, ...rest] = path.split('/');
+    await storage.upload(bucket!, rest.join('/'), new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]), 'image/jpeg');
+    await web.liffFetch(`/api/liff/orders/${id}/slip`, liffAuth, { method: 'POST', body: { path } });
+    const next = await agreedVersion(id, 'PAYMENT_REVIEW');
+    expect(next).toBeGreaterThan(v); v = next;
+
+    const pay = (await db.query<{ slip_path: string; check_result: string; check_details: { ai: string; checks: { rule: string; detail: string }[] } }>(
+      'select slip_path, check_result, check_details from payments where order_id = $1', [id])).rows;
+    expect(pay).toHaveLength(1);
+    expect(pay[0]).toMatchObject({ slip_path: path, check_result: 'WARN' });
+    expect(pay[0]!.check_details.ai).toBe('MANUAL');
+    expect(pay[0]!.check_details.checks).toEqual([{ rule: 'READABLE', result: 'WARN', detail: SLIP_MANUAL_REVIEW_DETAIL }]);
+
+    own = await ownerGet(id);
+    expect(own.latestPayment).not.toBeNull();
+    expect(own.latestPayment!.result).toBe('WARN');
+    expect(own.latestPayment!.slipImageUrl).toBe(`memory://signed/${path}`); // signed URL for the stored object
+    expect(own.latestPayment!.checks[0]!.detail).toBe(SLIP_MANUAL_REVIEW_DETAIL);
+
+    // WARN needs the owner's override reason; without it nothing changes.
+    await expect(web.ownerFetch(`/api/owner/payments/${own.latestPayment!.id}/confirm`, OWNER_TOKEN, { method: 'POST', body: { overrideReason: null }, ifMatch: own.version })).rejects.toBeInstanceOf(web.ApiRequestError);
+    expect((await dbOrder(id)).status).toBe('PAYMENT_REVIEW');
+    await web.ownerFetch(`/api/owner/payments/${own.latestPayment!.id}/confirm`, OWNER_TOKEN, { method: 'POST', body: { overrideReason: 'checked slip image' }, ifMatch: own.version });
+    expect(await agreedVersion(id, 'PAID')).toBeGreaterThan(v);
+    const confirmed = (await db.query<{ confirmed_by: string; override_reason: string }>('select confirmed_by, override_reason from payments where order_id = $1', [id])).rows[0]!;
+    expect(confirmed).toEqual({ confirmed_by: OWNER_AUTH, override_reason: 'checked slip image' });
   }, 60_000);
 });

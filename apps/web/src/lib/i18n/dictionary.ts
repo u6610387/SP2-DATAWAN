@@ -79,6 +79,10 @@ export interface Dictionary {
     expiresAt: (time: string) => string;
     paymentTitle: string;
     slipAmount: (amount: string) => string;
+    slipImageAlt: string;
+    slipOpenFull: string;
+    slipImageMissing: string;
+    slipImageError: string;
     overrideReasonPlaceholder: string;
     confirmPayment: string;
     rejectSlip: string;

@@ -3,7 +3,7 @@ import { parseOwnerCommand } from '../src/line/ownerCommands';
 import { dailyBudgetRemaining, decidePush, quotaMode } from '../src/line/quota';
 import { parseMapsLink } from '../src/services/location';
 import { buildPromptPayPayload } from '../src/services/promptpay';
-import { checkSlip, receiverMatches } from '../src/services/slipCheck';
+import { checkSlip, receiverMatches, SLIP_MANUAL_REVIEW_DETAIL } from '../src/services/slipCheck';
 import { daysLeftInMonth, nextBangkokMonthStart } from '../src/util/time';
 
 describe('owner command parser', () => {
@@ -92,6 +92,16 @@ describe('slip checks', () => {
     expect(checkSlip(slip, { ...ctx, referenceAlreadyUsed: true }).result).toBe('FAIL');
     expect(checkSlip({ ...slip, reference_no: null }, ctx).result).toBe('WARN');
     expect(checkSlip(null, ctx).result).toBe('WARN');
+  });
+  // Production runs GEMINI_SLIP_MODE=manual (CLAUDE.md D1): no AI read is attempted, so the
+  // owner must not be told the slip was "unreadable" — it was never read on purpose.
+  it('manual slip mode: WARN with a "check it yourself" message, not "unreadable"', () => {
+    const manual = checkSlip(null, { ...ctx, manualReview: true });
+    expect(manual.result).toBe('WARN');
+    expect(manual.checks).toEqual([{ rule: 'READABLE', result: 'WARN', detail: SLIP_MANUAL_REVIEW_DETAIL }]);
+    expect(SLIP_MANUAL_REVIEW_DETAIL).not.toContain('อ่านสลิปไม่ได้');
+    // a real read failure keeps the original wording
+    expect(checkSlip(null, ctx).checks[0]!.detail).toBe('อ่านสลิปไม่ได้ ให้เจ้าของร้านตรวจจากรูป');
   });
   it('receiver match by masked name or last 4 digits', () => {
     expect(receiverMatches('xxx-x-x5678-x', '', '0812345678')).toBe(true);
