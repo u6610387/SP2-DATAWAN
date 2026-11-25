@@ -144,6 +144,9 @@ export class SupabaseRepo implements Repo {
     if (res.error) throw new Error(`supabase referenceExists: ${res.error.message}`);
     return (res.count ?? 0) > 0;
   }
+  async findPaymentByReference(ref: string) {
+    return must(await this.db.from('payments').select('*').eq('reference_no', ref).maybeSingle(), 'findPaymentByReference');
+  }
 
   async latestUnitCost(productId: string, sinceIso?: string) {
     let q = this.db.from('price_history').select('unit_price_satang').eq('product_id', productId).eq('kind', 'cost');

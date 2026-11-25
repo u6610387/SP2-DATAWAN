@@ -27,6 +27,7 @@ import { signLineBody } from '../../src/line/signature';
 import { RecordingNotifier } from '../../src/services/notifier';
 import { RecordingBroadcaster } from '../../src/services/realtime';
 import { SLIP_MANUAL_REVIEW_DETAIL } from '../../src/services/slipCheck';
+import { buildSlipQrForTest } from '../../src/services/slipQr';
 import { SupabaseRepo } from '../../src/services/repo.supabase';
 import { MemoryStorage } from '../../src/services/storage';
 import { CUSTOMER_LINE, FakeAuth, FakeLine, findPostback, LIFF_TOKEN, OWNER_AUTH, OWNER_LINE, OWNER_TOKEN, SECRET } from '../harness';
@@ -296,5 +297,80 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     expect(await agreedVersion(id, 'PAID')).toBeGreaterThan(v);
     const confirmed = (await db.query<{ confirmed_by: string; override_reason: string }>('select confirmed_by, override_reason from payments where order_id = $1', [id])).rows[0]!;
     expect(confirmed).toEqual({ confirmed_by: OWNER_AUTH, override_reason: 'checked slip image' });
+  }, 60_000);
+
+  /** Fresh order driven to PAYMENT_REVIEW with an uploaded slip, through the same calls as the apps. */
+  async function orderInPaymentReview(text: string): Promise<{ id: string; code: string; paymentId: string }> {
+    await customerText(text);
+    // With another order still open the bot asks "add to it or start a new order?" — choose new.
+    if (!(await db.query(`select 1 from orders where status = 'AWAITING_CONFIRMATION'`)).rows.length) {
+      await webhook(CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'new') } });
+    }
+    const { id, code } = (await db.query<{ id: string; code: string }>(`select id, code from orders where status = 'AWAITING_CONFIRMATION'`)).rows[0]!;
+    await webhook(CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'confirm') } });
+    await webhook(CUSTOMER_LINE, { type: 'message', message: { id: `m${seq + 1}`, type: 'location', latitude: 13.72, longitude: 100.47, address: 'ตลาดสดธนบุรี' } });
+    let own = await ownerGet(id);
+    await web.ownerFetch(`/api/owner/orders/${id}/price`, OWNER_TOKEN, { method: 'POST', body: { amountSatang: 100 }, ifMatch: own.version });
+    const cust = await liffGet(id);
+    await web.liffFetch(`/api/liff/orders/${id}/accept`, liffAuth, { method: 'POST', ifMatch: cust.version });
+    own = await ownerGet(id);
+    await web.ownerFetch(`/api/owner/orders/${id}/shipping`, OWNER_TOKEN, { method: 'POST', body: { feeSatang: 0 }, ifMatch: own.version });
+    const { path } = await web.liffFetch<{ uploadUrl: string; path: string }>(`/api/liff/orders/${id}/slip-upload-url`, liffAuth, { method: 'POST', body: { contentType: 'image/jpeg' } });
+    const [bucket, ...rest] = path.split('/');
+    await storage.upload(bucket!, rest.join('/'), new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), 'image/jpeg');
+    await web.liffFetch(`/api/liff/orders/${id}/slip`, liffAuth, { method: 'POST', body: { path } });
+    own = await ownerGet(id);
+    expect(own.status).toBe('PAYMENT_REVIEW');
+    return { id, code, paymentId: own.latestPayment!.id };
+  }
+
+  const qrCheck = (paymentId: string, payload: string | null) =>
+    web.ownerFetch<OwnerOrderView>(`/api/owner/payments/${paymentId}/qr`, OWNER_TOKEN, { method: 'POST', body: { payload } });
+  const refCheck = (v: OwnerOrderView) => v.latestPayment!.checks.find((c) => c.rule === 'REFERENCE');
+
+  it('slip Mini-QR check: missing / tampered / valid / duplicate, flags only, owner still decides', async () => {
+    const a = await orderInPaymentReview('หอยแครง 1 โล');
+    const vBefore = (await dbOrder(a.id)).version;
+    const transRef = '016330112233ABCDEFGH';
+    const qr = buildSlipQrForTest('004', transRef);
+
+    // No QR found on the image → WARN, owner checks the reference on the image.
+    let view = await qrCheck(a.paymentId, null);
+    expect(refCheck(view)).toMatchObject({ result: 'WARN' });
+    expect(view.latestPayment!.result).toBe('WARN');
+
+    // Tampered QR (CRC mismatch) → FAIL with the reason; overall FAIL.
+    view = await qrCheck(a.paymentId, qr.slice(0, -4) + '0000');
+    expect(refCheck(view)).toMatchObject({ result: 'FAIL', detail: expect.stringContaining('QR บนสลิปไม่ถูกต้อง') });
+    expect(view.latestPayment!.result).toBe('FAIL');
+
+    // Valid bank QR → REFERENCE PASS with bank + ref; the check replaces the earlier one (one row).
+    view = await qrCheck(a.paymentId, qr);
+    expect(view.latestPayment!.checks.filter((c) => c.rule === 'REFERENCE')).toHaveLength(1);
+    expect(refCheck(view)).toEqual({ rule: 'REFERENCE', result: 'PASS', detail: `QR ธนาคารถูกต้อง: ธ.กสิกรไทย เลขอ้างอิง ${transRef} ยังไม่เคยใช้` });
+    // Amount / receiver / time are not verified without a bank API → overall stays WARN.
+    expect(view.latestPayment!.result).toBe('WARN');
+    const row = (await db.query<{ reference_no: string; check_result: string }>('select reference_no, check_result from payments where id = $1', [a.paymentId])).rows[0]!;
+    expect(row).toEqual({ reference_no: transRef, check_result: 'WARN' });
+    // Re-running the same QR is idempotent.
+    expect(refCheck(await qrCheck(a.paymentId, qr))).toMatchObject({ result: 'PASS' });
+
+    // Code never moves the order: status and version are unchanged, audit row says owner.
+    expect(await dbOrder(a.id)).toMatchObject({ status: 'PAYMENT_REVIEW', version: vBefore });
+    const ev = (await db.query<{ actor: string; n: number }>(`select actor, count(*)::int as n from order_events where order_id = $1 and event = 'SLIP_QR_CHECKED' group by actor`, [a.id])).rows;
+    expect(ev).toEqual([{ actor: 'owner', n: 4 }]);
+
+    // The same slip sent for another order → FAIL "duplicate", naming the first order.
+    await web.ownerFetch(`/api/owner/payments/${a.paymentId}/confirm`, OWNER_TOKEN, { method: 'POST', body: { overrideReason: 'checked image' }, ifMatch: (await ownerGet(a.id)).version });
+    const b = await orderInPaymentReview('กั้ง 1 โล');
+    view = await qrCheck(b.paymentId, qr);
+    expect(refCheck(view)).toEqual({ rule: 'REFERENCE', result: 'FAIL', detail: `สลิปซ้ำ: เลขอ้างอิง ${transRef} เคยใช้กับออเดอร์ ${a.code} แล้ว` });
+    expect(view.latestPayment!.result).toBe('FAIL');
+    expect((await db.query<{ reference_no: string | null }>('select reference_no from payments where id = $1', [b.paymentId])).rows[0]!.reference_no).toBeNull();
+    // FAIL still lets the owner decide (reject here); it is never auto-rejected or auto-approved.
+    expect((await dbOrder(b.id)).status).toBe('PAYMENT_REVIEW');
+
+    // After confirmation the QR result is frozen.
+    await expect(qrCheck(a.paymentId, qr)).rejects.toMatchObject({ status: 409 });
   }, 60_000);
 });

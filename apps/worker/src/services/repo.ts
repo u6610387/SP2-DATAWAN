@@ -94,6 +94,8 @@ export interface Repo {
   latestPayment(orderId: string): Promise<PaymentRow | null>;
   updatePayment(id: string, patch: PaymentPatch): Promise<PaymentRow>;
   referenceExists(referenceNo: string): Promise<boolean>;
+  /** The payment (if any) that already holds this bank transRef (payments_reference_uidx). */
+  findPaymentByReference(referenceNo: string): Promise<PaymentRow | null>;
 
   /** Latest cost-per-unit (satang) from price_history kind='cost', optionally only since a date. */
   latestUnitCost(productId: string, sinceIso?: string): Promise<number | null>;

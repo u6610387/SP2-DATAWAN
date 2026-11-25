@@ -53,6 +53,12 @@ export const CancelOrderRequest = z.object({
 });
 export type CancelOrderRequest = z.infer<typeof CancelOrderRequest>;
 
+/** Text of the Mini-QR the owner's device decoded from the stored slip image; null = no QR found. */
+export const SlipQrRequest = z.object({
+  payload: z.string().max(512).nullable(),
+});
+export type SlipQrRequest = z.infer<typeof SlipQrRequest>;
+
 export const SlipUploadUrlRequest = z.object({
   contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
 });

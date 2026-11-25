@@ -207,11 +207,17 @@ export class MemoryRepo implements Repo {
   async updatePayment(id: string, patch: import('./repo').PaymentPatch) {
     const p = this.payments.find((x) => x.id === id);
     if (!p) throw new Error('payment not found');
+    // DB guard (0001_init.sql payments_reference_uidx)
+    if (patch.reference_no && this.payments.some((x) => x.id !== id && x.reference_no === patch.reference_no)) throw new Error('duplicate key value violates unique constraint "payments_reference_uidx"');
     Object.assign(p, patch);
     return { ...p };
   }
   async referenceExists(ref: string) {
     return this.payments.some((p) => p.reference_no === ref);
+  }
+  async findPaymentByReference(ref: string) {
+    const p = this.payments.find((x) => x.reference_no === ref);
+    return p ? { ...p } : null;
   }
 
   async latestUnitCost(productId: string, sinceIso?: string) {
