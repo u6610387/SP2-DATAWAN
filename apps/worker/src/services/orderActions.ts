@@ -306,9 +306,10 @@ export async function submitSlip(deps: Deps, order: OrderRow, path: string, byte
   if (slip && !slip.is_slip) return { ok: false, reason: 'NOT_A_SLIP', order };
 
   const refUsed = slip?.reference_no ? await deps.repo.referenceExists(slip.reference_no) : false;
+  const manual = deps.cfg.GEMINI_SLIP_MODE === 'manual';
   const outcome = checkSlip(slip, {
     order, receiverName: deps.cfg.PROMPTPAY_RECEIVER_NAME, promptpayId: deps.cfg.PROMPTPAY_ID,
-    referenceAlreadyUsed: refUsed, now: deps.now(),
+    referenceAlreadyUsed: refUsed, now: deps.now(), manualReview: manual,
   });
   const payment = await deps.repo.insertPayment({
     order_id: order.id,
@@ -319,7 +320,7 @@ export async function submitSlip(deps: Deps, order: OrderRow, path: string, byte
     receiver_text: slip?.receiver_name_or_id ?? null,
     reference_no: refUsed ? null : slip?.reference_no ?? null,
     check_result: outcome.result,
-    check_details: { checks: outcome.checks, ...(refUsed ? { duplicate_reference: slip?.reference_no } : {}), ai: r.ok ? 'ok' : r.error },
+    check_details: { checks: outcome.checks, ...(refUsed ? { duplicate_reference: slip?.reference_no } : {}), ai: r.ok ? 'ok' : manual ? 'MANUAL' : r.error },
   });
   const res = await applyEvent(deps, order, 'SLIP_UPLOADED', 'customer', {}, { payment_id: payment.id, result: outcome.result });
   if (!res.ok) return asConflict(res);

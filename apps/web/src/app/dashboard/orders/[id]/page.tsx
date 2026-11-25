@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { bahtToSatang, canFire, computeMargin, formatTHB, type OwnerOrderView } from '@datawan/shared';
 import { MarginPreview } from '@/components/MarginPreview';
+import { SlipPaymentCard } from '@/components/SlipPaymentCard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardTitle } from '@/components/ui/card';
@@ -138,7 +139,7 @@ export default function OrderDetailPage() {
       )}
 
       {order.latestPayment && (
-        <PaymentCard
+        <SlipPaymentCard
           order={order}
           t={t}
           busy={busy}
@@ -270,51 +271,6 @@ function ShippingCard({
         <Input inputMode="decimal" placeholder={t.orderDetail.shippingPlaceholder} value={baht} onChange={(e) => setBaht(e.target.value)} />
         <Button disabled={busy || feeSatang === null || feeSatang === currentFeeSatang} onClick={() => feeSatang !== null && onSubmit(feeSatang)}>
           {t.orderDetail.confirmShipping}
-        </Button>
-      </div>
-    </Card>
-  );
-}
-
-function PaymentCard({
-  order,
-  t,
-  busy,
-  onConfirm,
-  onReject,
-}: {
-  order: OwnerOrderView;
-  t: Dictionary;
-  busy: boolean;
-  onConfirm: (overrideReason: string | null) => void;
-  onReject: (reason: string) => void;
-}) {
-  const payment = order.latestPayment!;
-  const [reason, setReason] = useState('');
-  const needsOverride = payment.result !== 'PASS';
-  const RESULT_COLOR = { PASS: 'bg-[var(--green-bg)] text-[var(--green)]', WARN: 'bg-[var(--yellow-bg)] text-[var(--yellow)]', FAIL: 'bg-[var(--red-bg)] text-[var(--red)]', PENDING: 'bg-black/5' } as const;
-
-  return (
-    <Card>
-      <div className="flex items-center justify-between">
-        <CardTitle>{t.orderDetail.paymentTitle}</CardTitle>
-        <Badge className={RESULT_COLOR[payment.result]}>{payment.result}</Badge>
-      </div>
-      <ul className="mt-2 space-y-1 text-xs text-[var(--muted)]">
-        {payment.checks.map((c, i) => (
-          <li key={i}>
-            {c.rule}: {c.detail}
-          </li>
-        ))}
-      </ul>
-      {payment.extracted?.amount != null && <p className="mt-2 text-sm">{t.orderDetail.slipAmount(`฿${payment.extracted.amount}`)}</p>}
-      {needsOverride && <Input className="mt-3" placeholder={t.orderDetail.overrideReasonPlaceholder} value={reason} onChange={(e) => setReason(e.target.value)} />}
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <Button disabled={busy || order.status !== 'PAYMENT_REVIEW' || (needsOverride && !reason)} onClick={() => onConfirm(needsOverride ? reason : null)}>
-          {t.orderDetail.confirmPayment}
-        </Button>
-        <Button variant="danger" disabled={busy || order.status !== 'PAYMENT_REVIEW'} onClick={() => onReject(reason || t.orderDetail.rejectReasonFallback)}>
-          {t.orderDetail.rejectSlip}
         </Button>
       </div>
     </Card>
