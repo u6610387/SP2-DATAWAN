@@ -130,7 +130,7 @@ export interface PaymentCheckView {
 | POST | `/api/owner/payments/:id/reject` | `{ reason }` | `OwnerOrderView` |
 | POST | `/api/owner/orders/:id/dispatch` | `{ trackingUrl }` | `OwnerOrderView` |
 | POST | `/api/owner/orders/:id/delivered` | `{ actualQty?: {itemId, actualQty}[] }` | `OwnerOrderView` |
-| POST | `/api/owner/orders/:id/cancel` | `{ reason }` | `OwnerOrderView` |
+| POST | `/api/owner/orders/:id/cancel` | `{ reason }` (`CancelOrderRequest`, 1–200 chars) | `OwnerOrderView`. `OWNER_CANCEL`: any state before `PAID` (incl. `PAYMENT_EXPIRED`, `PAYMENT_REVIEW`), else 409. Sets `cancel_reason = 'owner: <reason>'`, clears `users.active_order_id` if it pointed at this order, no LINE push |
 | POST | `/api/owner/supplier-bills` | multipart `image` | `{ billId, result: SupplierBillResult, flags: BillFlag[] }` |
 | POST | `/api/owner/supplier-bills/:id/save` | `{ supplierName?, billDate?, lines: {productId, qty, unitCostSatang}[] }` | `{ stockLogIds[] }` |
 | GET/POST/PATCH | `/api/owner/products[/:id]` | product fields | product(s) |

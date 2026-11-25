@@ -201,7 +201,25 @@ export async function ownerDispatch(deps: Deps, order: OrderRow, trackingUrl: st
   return { ok: true, order: push.order, push };
 }
 
-export type OwnerDeliveredResult = { ok: true; order: OrderRow; items: OrderItemRow[] } | Conflict;
+export type OwnerCancelResult = { ok: true; order: OrderRow } | Conflict;
+
+/**
+ * Owner cancels an order that is not yet paid (OWNER_CANCEL edges in orderMachine). Works for
+ * any pre-payment order, including one that is no longer the customer's active order and
+ * empty NEEDS_REVIEW orders. No LINE push: the customer sees the status in LIFF / on next message.
+ */
+export async function ownerCancel(deps: Deps, order: OrderRow, ownerId: string, reason: string): Promise<OwnerCancelResult> {
+  const res = await applyEvent(deps, order, 'OWNER_CANCEL', 'owner', {
+    cancelled_at: deps.now().toISOString(),
+    cancel_reason: `owner: ${reason}`,
+  }, { reason, owner_id: ownerId });
+  if (!res.ok) return asConflict(res);
+  const user = await deps.repo.getUser(order.user_id);
+  if (user?.active_order_id === order.id) await deps.repo.setActiveOrder(user.id, null);
+  return { ok: true, order: res.order };
+}
+
+export type OwnerDeliveredResult ={ ok: true; order: OrderRow; items: OrderItemRow[] } | Conflict;
 
 /** Marks DELIVERED: writes stock `sale` rows + sell price_history in the same step (PROJECT_SPEC §9). */
 export async function ownerDelivered(

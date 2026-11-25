@@ -47,6 +47,12 @@ export const DeliveredRequest = z.object({
 });
 export type DeliveredRequest = z.infer<typeof DeliveredRequest>;
 
+/** Owner cancels an order before payment is confirmed. The reason goes into the audit trail. */
+export const CancelOrderRequest = z.object({
+  reason: z.string().trim().min(1).max(200),
+});
+export type CancelOrderRequest = z.infer<typeof CancelOrderRequest>;
+
 export const SlipUploadUrlRequest = z.object({
   contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
 });

@@ -8,6 +8,7 @@
 import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
 import {
+  CancelOrderRequest,
   ConfirmPaymentRequest,
   DeliveredRequest,
   DispatchRequest,
@@ -226,6 +227,18 @@ export function createOwnerRoutes(deps: Deps) {
     const parsed = DeliveredRequest.safeParse(await readJson(c));
     if (!parsed.success) return apiError(c, 'VALIDATION_FAILED', parsed.error.message, 400);
     const r = await actions.ownerDelivered(deps, order, c.get('ownerId'), parsed.data.actualQty);
+    if (!r.ok) return conflictError(c, r.reason, r.order);
+    return c.json(await buildOwnerView(deps, r.order));
+  });
+
+  app.post('/orders/:id/cancel', async (c) => {
+    const order = await deps.repo.getOrder(c.req.param('id'));
+    if (!order) return apiError(c, 'NOT_FOUND', 'order not found', 404);
+    const conflict = checkIfMatch(c, order);
+    if (conflict) return conflict;
+    const parsed = CancelOrderRequest.safeParse(await readJson(c));
+    if (!parsed.success) return apiError(c, 'VALIDATION_FAILED', parsed.error.message, 400);
+    const r = await actions.ownerCancel(deps, order, c.get('ownerId'), parsed.data.reason);
     if (!r.ok) return conflictError(c, r.reason, r.order);
     return c.json(await buildOwnerView(deps, r.order));
   });

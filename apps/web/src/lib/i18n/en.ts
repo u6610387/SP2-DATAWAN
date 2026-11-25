@@ -81,6 +81,13 @@ export const en: Dictionary = {
     markDelivered: 'Mark delivered',
     deliveredTitle: 'Delivered',
     deliveredSummary: (total) => `Sale ${total} · stock deducted`,
+    cancelOrder: 'Cancel order',
+    cancelTitle: 'Cancel this order?',
+    cancelHint: 'Only possible before payment is confirmed. The customer is not messaged.',
+    cancelReasonPlaceholder: 'Reason (required)',
+    cancelConfirm: 'Confirm cancel',
+    cancelBack: 'Keep order',
+    cancelledTitle: 'Cancelled',
   },
   inventory: {
     title: 'Stock',
