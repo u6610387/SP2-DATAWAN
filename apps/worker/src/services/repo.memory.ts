@@ -165,6 +165,7 @@ export class MemoryRepo implements Repo {
     }
   }
   async touchCustomerLastSeen(orderId: string, nowIso: string) {
+    // Presence only: no version bump, mirroring bump_order_version() in 0004_presence_no_version_bump.sql.
     const o = this.orders.find((x) => x.id === orderId);
     if (o) o.customer_last_seen_at = nowIso;
   }

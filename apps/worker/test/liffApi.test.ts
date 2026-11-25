@@ -97,4 +97,29 @@ describe('LIFF REST API', () => {
     expect((await jsonOf(res)).status).toBe('PAYMENT_REVIEW');
     expect(h.repo.payments[0]!.check_result).toBe('PASS');
   });
+
+  // Regression (production A3): the heartbeat must not invalidate the version the order room
+  // cached, otherwise Counter / Accept send a stale If-Match and get 409. The SQL trigger side
+  // is covered by orderVersionTrigger.test.ts; this pins the HTTP sequence the LIFF performs.
+  it('counter-offer with the version from GET still succeeds after heartbeats', async () => {
+    const h = makeHarness();
+    const orderId = await toPriceQuoted(h);
+    const app = createApp(h.deps);
+    const view = await jsonOf(await app.request(`/api/liff/orders/${orderId}`, authed(LIFF_TOKEN)));
+    expect(view.status).toBe('PRICE_QUOTED');
+
+    for (let i = 0; i < 3; i++) {
+      const hb = await app.request(`/api/liff/orders/${orderId}/heartbeat`, authed(LIFF_TOKEN, {}));
+      expect(hb.status).toBe(204);
+    }
+    expect(h.repo.orders[0]!.version).toBe(view.version);
+
+    const res = await app.request(`/api/liff/orders/${orderId}/counter`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${LIFF_TOKEN}`, 'Content-Type': 'application/json', 'If-Match': String(view.version) },
+      body: JSON.stringify({ amountSatang: 170000 }),
+    });
+    expect(res.status).toBe(200);
+    expect((await jsonOf(res)).status).toBe('NEGOTIATING');
+  });
 });
