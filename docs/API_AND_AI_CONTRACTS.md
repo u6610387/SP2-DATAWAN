@@ -109,7 +109,7 @@ export interface PaymentCheckView {
 | POST | `/api/liff/orders/:id/accept` | – | `CustomerOrderView` | |
 | POST | `/api/liff/orders/:id/counter` | `{ amountSatang, message? }` | `CustomerOrderView` | `amountSatang` < current offer |
 | POST | `/api/liff/orders/:id/slip-upload-url` | `{ contentType }` | `{ uploadUrl, path }` | Signed Storage upload URL, 5 min |
-| POST | `/api/liff/orders/:id/slip` | `{ path }` | `CustomerOrderView` | Triggers slip pipeline |
+| POST | `/api/liff/orders/:id/slip` | `{ path }` | `CustomerOrderView` | Triggers slip pipeline. `path` must be `slips/<this order id>/<uuid>.<jpeg\|png\|webp>` (as issued by `slip-upload-url`), else 400 before Storage is read |
 | POST | `/api/liff/orders/:id/cancel` | `{ reason? }` | `CustomerOrderView` | Only before `PAYMENT_REVIEW` |
 | POST | `/api/liff/orders/:id/heartbeat` | – | `204` | Every 30 s while visible |
 | POST | `/api/liff/reorder` | `{ sourceOrderId, requestedDeliveryAt? }` | `CustomerOrderView` | B2B; new order in `AWAITING_CONFIRMATION` |
