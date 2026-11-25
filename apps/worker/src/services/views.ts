@@ -22,6 +22,7 @@ import {
 } from '@datawan/shared';
 import { lalamoveCardText } from '../line/flex';
 import { mapUrl } from './location';
+import { orderNeedsRecipient } from './recipient';
 import { orderChannel } from './realtime';
 import { buildPromptPayPayload } from './promptpay';
 import { withNames } from './itemNames';
@@ -73,6 +74,9 @@ export function toCustomerOrderView(args: CustomerViewArgs): CustomerOrderView {
     negotiation: toNegotiationViews(negotiations),
     delivery: {
       recipientName: order.recipient_name,
+      recipientPhone: order.recipient_phone,
+      hasLocation: order.address_id !== null,
+      needsRecipient: orderNeedsRecipient(order),
       addressText: address?.address_text ?? null,
       lat: address?.lat ?? null,
       lng: address?.lng ?? null,

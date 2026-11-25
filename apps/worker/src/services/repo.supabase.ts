@@ -45,6 +45,9 @@ export class SupabaseRepo implements Repo {
   async setActiveOrder(userId: string, orderId: string | null) {
     must(await this.db.from('users').update({ active_order_id: orderId }).eq('id', userId), 'setActiveOrder');
   }
+  async updateUserContact(userId: string, patch: { full_name: string; phone: string; pdpa_consent_at?: string }) {
+    must(await this.db.from('users').update(patch).eq('id', userId), 'updateUserContact');
+  }
   async markUserInactive(userId: string) {
     must(await this.db.from('users').update({ is_active: false }).eq('id', userId), 'markUserInactive');
   }
@@ -112,6 +115,9 @@ export class SupabaseRepo implements Repo {
 
   async insertAddress(a: import('./repo').NewAddress) {
     return must(await this.db.from('addresses').insert(a).select('*').single(), 'insertAddress');
+  }
+  async setAddressRecipient(id: string, patch: { recipient_name: string; recipient_phone: string }) {
+    must(await this.db.from('addresses').update(patch).eq('id', id), 'setAddressRecipient');
   }
   async getAddress(id: string) {
     return must(await this.db.from('addresses').select('*').eq('id', id).maybeSingle(), 'getAddress');

@@ -108,6 +108,7 @@ export interface PaymentCheckView {
 | POST | `/api/liff/geocode` | `{ query: string }` | `{ candidates: {label, lat, lng}[] }` | Longdo → OSM fallback |
 | POST | `/api/liff/orders/:id/accept` | – | `CustomerOrderView` | |
 | POST | `/api/liff/orders/:id/counter` | `{ amountSatang, message? }` | `CustomerOrderView` | `amountSatang` < current offer |
+| POST | `/api/liff/orders/:id/recipient` | `{ recipientName, recipientPhone, pdpaConsent: true }` (`RecipientContactRequest`; phone normalised by `normalizeThaiPhone`: 9–10 digits starting with 0, `+66`, dashes and Thai digits accepted) | `CustomerOrderView` | `If-Match`. Saves to the order, its address and the user profile (`full_name`, `phone`, `pdpa_consent_at` on first consent). If the order is held in `AWAITING_LOCATION` with a location, fires `LOCATION_SET` (owner alerted). Allowed until `DELIVERING`. Audit `RECIPIENT_SET` with no PII in the payload |
 | POST | `/api/liff/orders/:id/slip-upload-url` | `{ contentType }` | `{ uploadUrl, path }` | Signed Storage upload URL, 5 min |
 | POST | `/api/liff/orders/:id/slip` | `{ path }` | `CustomerOrderView` | Triggers slip pipeline. `path` must be `slips/<this order id>/<uuid>.<jpeg\|png\|webp>` (as issued by `slip-upload-url`), else 400 before Storage is read |
 | POST | `/api/liff/orders/:id/cancel` | `{ reason? }` | `CustomerOrderView` | Only before `PAYMENT_REVIEW` |
@@ -162,6 +163,8 @@ export interface BillFlag { lineIndex: number | null; kind: 'LINE_MATH' | 'TOTAL
 | `0 1 * * 1` | Supabase keep-alive query (risk D5) |
 
 ---
+
+> **Recipient rule (2026-11-25):** a LINE location only completes `LOCATION_SET` when the customer's profile has `full_name` + `phone` (copied to `orders.recipient_*`). Otherwise the address is saved, the order stays in `AWAITING_LOCATION` (`CustomerOrderView.delivery.needsRecipient = true`), the bot replies with the LIFF link, and the order is submitted by `POST /api/liff/orders/:id/recipient`. The LINE display name is never used as the recipient. `delivery` also carries `recipientPhone` and `hasLocation`.
 
 ## 3. Supabase Realtime Channels
 

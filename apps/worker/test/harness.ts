@@ -32,6 +32,11 @@ export const OWNER_LINE = 'U00000000000000000000000000000a11';
 /** Second owner account (LINE_OWNER_USER_ID is a comma-separated list). */
 export const OWNER_LINE_2 = 'U00000000000000000000000000000a22';
 export const CUSTOMER_LINE = 'Ucustomer00000000000000000000000000';
+/** CUSTOMER_LINE is a returning customer with a saved recipient (fake data). */
+export const CUSTOMER_NAME = 'คุณทดสอบ ลูกค้า';
+export const CUSTOMER_PHONE = '0890000001';
+/** A first-time customer with no saved name/phone (tests the recipient step). */
+export const NEW_CUSTOMER_LINE = 'Unewcustomer0000000000000000000000';
 export const OWNER_AUTH = '11111111-1111-4111-8111-111111111111';
 export const SECRET = 'test-channel-secret';
 export const OWNER_TOKEN = 'test-owner-token';
@@ -74,6 +79,11 @@ export function makeHarness(startIso = '2027-01-14T02:20:00Z') {
     { id: 'p-hoi', name_th: 'หอยแครง', aliases: ['แครง'], unit: 'kg', prep_types: ['live'] },
     { id: 'p-pu', name_th: 'ปูม้า', aliases: ['ปู'], unit: 'kg', prep_types: ['live', 'chilled', 'cooked'] },
   ]);
+  repo.users.push({
+    id: 'u-customer', line_user_id: CUSTOMER_LINE, display_name: null, full_name: CUSTOMER_NAME, phone: CUSTOMER_PHONE,
+    user_type: 'B2C', business_name: null, default_delivery_window: null, pdpa_consent_at: startIso,
+    active_order_id: null, is_active: true, created_at: startIso, updated_at: startIso,
+  });
   const line = new FakeLine();
   const notifier = new RecordingNotifier();
   const realtime = new RecordingBroadcaster();
@@ -100,8 +110,10 @@ export function makeHarness(startIso = '2027-01-14T02:20:00Z') {
   const customerText = (text: string) => send(CUSTOMER_LINE, { type: 'message', message: { id: `m${seq + 1}`, type: 'text', quoteToken: 'q', text } });
   const ownerText = (text: string) => send(OWNER_LINE, { type: 'message', message: { id: `m${seq + 1}`, type: 'text', quoteToken: 'q', text } });
   const customerPostback = (data: string) => send(CUSTOMER_LINE, { type: 'postback', postback: { data } });
-  const customerLocation = (lat: number, lng: number, address: string) =>
-    send(CUSTOMER_LINE, { type: 'message', message: { id: `m${seq + 1}`, type: 'location', latitude: lat, longitude: lng, address } });
+  const customerLocation = (lat: number, lng: number, address: string, userId = CUSTOMER_LINE) =>
+    send(userId, { type: 'message', message: { id: `m${seq + 1}`, type: 'location', latitude: lat, longitude: lng, address } });
+  const userText = (userId: string, text: string) => send(userId, { type: 'message', message: { id: `m${seq + 1}`, type: 'text', quoteToken: 'q', text } });
+  const userPostback = (userId: string, data: string) => send(userId, { type: 'postback', postback: { data } });
   const customerImage = (messageId: string, bytes: Uint8Array) => {
     line.content.set(messageId, bytes);
     return send(CUSTOMER_LINE, { type: 'message', message: { id: messageId, type: 'image', contentProvider: { type: 'line' }, quoteToken: 'q' } });
@@ -113,7 +125,7 @@ export function makeHarness(startIso = '2027-01-14T02:20:00Z') {
       { product_id: 'p-hoi', kind: 'cost', unit_price_satang: 15000, source: 'supplier_bill', user_id: null, order_id: null },
     ]);
   }
-  return { deps, repo, line, notifier, realtime, auth, clock, send, customerText, ownerText, customerPostback, customerLocation, customerImage, seedCosts };
+  return { deps, repo, line, notifier, realtime, auth, clock, send, customerText, ownerText, customerPostback, customerLocation, customerImage, userText, userPostback, seedCosts };
 }
 
 /** Extract the postback `data` of the first button whose data starts with `a=<action>`. */

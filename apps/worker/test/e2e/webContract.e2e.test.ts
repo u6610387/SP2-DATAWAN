@@ -116,6 +116,7 @@ const BODY_SCHEMA: Record<string, keyof typeof Contracts> = {
   'POST /api/owner/stock': 'StockAdjustRequest',
   'POST /api/owner/push-subscriptions': 'PushSubscriptionRequest',
   'POST /api/liff/orders/:param/counter': 'CounterOfferRequest',
+  'POST /api/liff/orders/:param/recipient': 'RecipientContactRequest',
   'POST /api/liff/orders/:param/slip-upload-url': 'SlipUploadUrlRequest',
   'POST /api/liff/orders/:param/slip': 'SlipSubmitRequest',
 };
@@ -132,6 +133,7 @@ const NEEDS_IF_MATCH = new Set([
   'POST /api/owner/orders/:param/cancel',
   'POST /api/liff/orders/:param/accept',
   'POST /api/liff/orders/:param/counter',
+  'POST /api/liff/orders/:param/recipient',
 ]);
 
 const calls = findWebCalls();

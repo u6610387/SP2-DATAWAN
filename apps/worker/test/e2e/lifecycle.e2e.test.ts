@@ -30,7 +30,7 @@ import { SLIP_MANUAL_REVIEW_DETAIL } from '../../src/services/slipCheck';
 import { buildSlipQrForTest } from '../../src/services/slipQr';
 import { SupabaseRepo } from '../../src/services/repo.supabase';
 import { MemoryStorage } from '../../src/services/storage';
-import { CUSTOMER_LINE, FakeAuth, FakeLine, findPostback, LIFF_TOKEN, OWNER_AUTH, OWNER_LINE, OWNER_TOKEN, SECRET } from '../harness';
+import { CUSTOMER_LINE, CUSTOMER_NAME, CUSTOMER_PHONE, NEW_CUSTOMER_LINE, FakeAuth, FakeLine, findPostback, LIFF_TOKEN, OWNER_AUTH, OWNER_LINE, OWNER_TOKEN, SECRET } from '../harness';
 import { createE2eDb, pgrestFetch } from './pgrest';
 
 const API = 'http://worker.e2e';
@@ -41,12 +41,16 @@ let app: ReturnType<typeof createApp>;
 let web: WebApi;
 let line: FakeLine;
 let realtime: RecordingBroadcaster;
+let auth: FakeAuth;
+let notifier: RecordingNotifier;
 let storage: MemoryStorage;
 const sent: { method: string; path: string; ifMatch: string | null }[] = [];
 const liffAuth = { idToken: LIFF_TOKEN, devUser: null };
 
 beforeAll(async () => {
   db = await createE2eDb([OWNER_AUTH]);
+  // CUSTOMER_LINE is a returning customer with a saved recipient (fake data).
+  await db.query(`insert into users (line_user_id, full_name, phone, pdpa_consent_at) values ($1, $2, $3, now())`, [CUSTOMER_LINE, CUSTOMER_NAME, CUSTOMER_PHONE]);
   const cfg = loadConfig({
     LINE_CHANNEL_SECRET: SECRET,
     LINE_CHANNEL_ACCESS_TOKEN: 'token',
@@ -62,15 +66,16 @@ beforeAll(async () => {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { fetch: pgrestFetch(db) },
   });
-  const auth = new FakeAuth();
+  auth = new FakeAuth();
   auth.owners.set(OWNER_TOKEN, OWNER_AUTH);
   auth.liffUsers.set(LIFF_TOKEN, CUSTOMER_LINE);
   line = new FakeLine();
   realtime = new RecordingBroadcaster();
+  notifier = new RecordingNotifier();
   storage = new MemoryStorage();
   const now = () => new Date();
   const deps: Deps = {
-    cfg, repo: new SupabaseRepo(supabase), line, notifier: new RecordingNotifier(), realtime, auth,
+    cfg, repo: new SupabaseRepo(supabase), line, notifier, realtime, auth,
     ai: createAi(cfg, {}, now), storage, now,
   };
   app = createApp(deps);
@@ -372,5 +377,80 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
 
     // After confirmation the QR result is frozen.
     await expect(qrCheck(a.paymentId, qr)).rejects.toMatchObject({ status: 409 });
+  }, 60_000);
+
+  // Production A5/A7: the Lalamove card showed "ผู้รับ: -" / "โทร: -" because nothing ever asked
+  // the customer for a recipient. Now a first-time customer's order is held until they fill it.
+  it('recipient: new customer is held until name + Thai phone are given; Lalamove card is clean; repeat order pre-filled', async () => {
+    const NEW_TOKEN = 'liff-token-new-customer';
+    auth.liffUsers.set(NEW_TOKEN, NEW_CUSTOMER_LINE);
+    const newAuth = { idToken: NEW_TOKEN, devUser: null };
+    const say = (text: string) => webhook(NEW_CUSTOMER_LINE, { type: 'message', message: { id: `m${seq + 1}`, type: 'text', quoteToken: 'q', text } });
+    const pin = () => webhook(NEW_CUSTOMER_LINE, { type: 'message', message: { id: `m${seq + 1}`, type: 'location', latitude: 13.72, longitude: 100.47, address: '99/1 ถ.ทดสอบ' } });
+    const confirm = () => webhook(NEW_CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'confirm') } });
+    const userId = async () => (await db.query<{ id: string }>('select id from users where line_user_id = $1', [NEW_CUSTOMER_LINE])).rows[0]!.id;
+
+    await say('หมึก 1 โล');
+    await confirm();
+    await pin();
+    const id = (await db.query<{ id: string }>(`select id from orders where user_id = $1`, [await userId()])).rows[0]!.id;
+    // Held: location saved, no recipient, not submitted to the shop, customer got the LIFF link.
+    let row = (await db.query<{ status: string; address_id: string | null; recipient_name: string | null; recipient_phone: string | null }>(
+      'select status, address_id, recipient_name, recipient_phone from orders where id = $1', [id])).rows[0]!;
+    expect(row).toMatchObject({ status: 'AWAITING_LOCATION', recipient_name: null, recipient_phone: null });
+    expect(row.address_id).not.toBeNull();
+    expect(JSON.stringify(line.replies.at(-1)!.messages)).toContain('ขอชื่อผู้รับและเบอร์โทร');
+    expect(JSON.stringify(line.replies.at(-1)!.messages)).toContain(`/orders/${id}`);
+    expect(notifier.alerts.filter((a) => a.kind === 'NEW_ORDER' && a.orderId === id)).toHaveLength(0);
+
+    let cust = await web.liffFetch<CustomerOrderView>(`/api/liff/orders/${id}`, newAuth);
+    expect(cust.delivery).toMatchObject({ hasLocation: true, needsRecipient: true, recipientName: null, recipientPhone: null });
+
+    // Validation: bad phone, no consent, stale version → rejected, nothing changes.
+    const post = (body: unknown, ifMatch = cust.version) => web.liffFetch<CustomerOrderView>(`/api/liff/orders/${id}/recipient`, newAuth, { method: 'POST', body, ifMatch });
+    await expect(post({ recipientName: 'คุณใหม่ ทดสอบ', recipientPhone: '12345', pdpaConsent: true })).rejects.toMatchObject({ status: 400 });
+    await expect(post({ recipientName: 'คุณใหม่ ทดสอบ', recipientPhone: '0812345678', pdpaConsent: false })).rejects.toMatchObject({ status: 400 });
+    await expect(post({ recipientName: '   ', recipientPhone: '0812345678', pdpaConsent: true })).rejects.toMatchObject({ status: 400 });
+    await expect(post({ recipientName: 'คุณใหม่ ทดสอบ', recipientPhone: '0812345678', pdpaConsent: true }, cust.version - 1)).rejects.toMatchObject({ status: 409 });
+    expect((await dbOrder(id)).status).toBe('AWAITING_LOCATION');
+
+    // Valid → saved (normalised) to order, address and profile, and the order is submitted.
+    cust = await post({ recipientName: 'คุณใหม่ ทดสอบ', recipientPhone: '081-234-5678', pdpaConsent: true });
+    expect(cust.status).toBe('AWAITING_PRICE');
+    expect(cust.delivery).toMatchObject({ recipientName: 'คุณใหม่ ทดสอบ', recipientPhone: '0812345678', needsRecipient: false });
+    row = (await db.query('select status, address_id, recipient_name, recipient_phone from orders where id = $1', [id])).rows[0] as typeof row;
+    expect(row).toMatchObject({ status: 'AWAITING_PRICE', recipient_name: 'คุณใหม่ ทดสอบ', recipient_phone: '0812345678' });
+    const addr = (await db.query<{ recipient_name: string; recipient_phone: string }>('select recipient_name, recipient_phone from addresses where id = $1', [row.address_id])).rows[0]!;
+    expect(addr).toEqual({ recipient_name: 'คุณใหม่ ทดสอบ', recipient_phone: '0812345678' });
+    const prof = (await db.query<{ full_name: string; phone: string; pdpa: boolean }>('select full_name, phone, pdpa_consent_at is not null as pdpa from users where line_user_id = $1', [NEW_CUSTOMER_LINE])).rows[0]!;
+    expect(prof).toEqual({ full_name: 'คุณใหม่ ทดสอบ', phone: '0812345678', pdpa: true });
+    expect(notifier.alerts.filter((a) => a.kind === 'NEW_ORDER' && a.orderId === id)).toHaveLength(1);
+    // Audit row has no PII.
+    const ev = (await db.query<{ actor: string; payload: unknown }>(`select actor, payload from order_events where order_id = $1 and event = 'RECIPIENT_SET'`, [id])).rows;
+    expect(ev).toEqual([{ actor: 'customer', payload: { submitted: true } }]);
+
+    // Through to the Lalamove card: clean ผู้รับ / โทร lines, no "-" placeholder, no warning.
+    let own = await ownerGet(id);
+    await web.ownerFetch(`/api/owner/orders/${id}/price`, OWNER_TOKEN, { method: 'POST', body: { amountSatang: 100 }, ifMatch: own.version });
+    cust = await web.liffFetch<CustomerOrderView>(`/api/liff/orders/${id}`, newAuth);
+    await web.liffFetch(`/api/liff/orders/${id}/accept`, newAuth, { method: 'POST', ifMatch: cust.version });
+    own = await ownerGet(id);
+    own = await web.ownerFetch<OwnerOrderView>(`/api/owner/orders/${id}/shipping`, OWNER_TOKEN, { method: 'POST', body: { feeSatang: 0 }, ifMatch: own.version });
+    const card = own.lalamoveCard!.text.split('\n');
+    expect(card).toContain('ผู้รับ: คุณใหม่ ทดสอบ');
+    expect(card).toContain('โทร: 0812345678');
+    expect(card.some((l) => /:\s*-\s*$/.test(l))).toBe(false);
+    expect(own.lalamoveCard!.text).not.toContain('⚠️');
+
+    // Repeat order: pre-filled from the saved profile, submitted straight away, no form.
+    await web.ownerFetch(`/api/owner/orders/${id}/cancel`, OWNER_TOKEN, { method: 'POST', body: { reason: 'e2e' }, ifMatch: own.version });
+    await say('กั้ง 1 โล');
+    await confirm();
+    await pin();
+    const id2 = (await db.query<{ id: string }>(`select id from orders where user_id = $1 and id <> $2`, [await userId(), id])).rows[0]!.id;
+    const cust2 = await web.liffFetch<CustomerOrderView>(`/api/liff/orders/${id2}`, newAuth);
+    expect(cust2.status).toBe('AWAITING_PRICE');
+    expect(cust2.delivery).toMatchObject({ recipientName: 'คุณใหม่ ทดสอบ', recipientPhone: '0812345678', needsRecipient: false });
+    expect(JSON.stringify(line.replies.at(-1)!.messages)).not.toContain('ขอชื่อผู้รับและเบอร์โทร');
   }, 60_000);
 });
