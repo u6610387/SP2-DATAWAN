@@ -29,6 +29,12 @@ function requireLiffUser(deps: Deps) {
   };
 }
 
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+/** Same shape /slip-upload-url issues: slips/<orderId>/<uuid>.<jpeg|png|webp>. */
+export function isOwnSlipPath(path: string, orderId: string): boolean {
+  return new RegExp(`^slips/${orderId.replace(/[^0-9a-f-]/gi, '')}/${UUID}\\.(jpeg|png|webp)$`, 'i').test(path);
+}
+
 async function getOwnOrder(c: Context<Env>, deps: Deps): Promise<OrderRow | Response> {
   const order = await deps.repo.getOrder(c.req.param('id')!);
   if (!order || order.user_id !== c.get('user').id) return apiError(c, 'NOT_FOUND', 'order not found', 404);
@@ -102,6 +108,9 @@ export function createLiffRoutes(deps: Deps) {
     if (order instanceof Response) return order;
     const parsed = SlipSubmitRequest.safeParse(await readJson(c));
     if (!parsed.success) return apiError(c, 'VALIDATION_FAILED', parsed.error.message, 400);
+    // Only a path this order's /slip-upload-url could have issued: never another order's slip,
+    // another bucket, or a traversal. Checked before Storage is touched (service role).
+    if (!isOwnSlipPath(parsed.data.path, order.id)) return apiError(c, 'VALIDATION_FAILED', 'path is not an upload for this order', 400);
     const { bucket, key } = splitPath(parsed.data.path);
     const { bytes, contentType } = await deps.storage.download(bucket, key);
     const r = await actions.submitSlip(deps, order, parsed.data.path, bytes, contentType);
