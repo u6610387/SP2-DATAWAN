@@ -2,7 +2,7 @@
 import { useParams, useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
-import { bahtToSatang, computeMargin, formatTHB, type OwnerOrderView } from '@datawan/shared';
+import { bahtToSatang, canFire, computeMargin, formatTHB, type OwnerOrderView } from '@datawan/shared';
 import { MarginPreview } from '@/components/MarginPreview';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -165,6 +165,17 @@ export default function OrderDetailPage() {
           <p className="mt-1 text-sm text-[var(--muted)]">{t.orderDetail.deliveredSummary(order.totalSatang !== null ? formatTHB(order.totalSatang) : '-')}</p>
         </Card>
       )}
+
+      {order.status === 'CANCELLED' && (
+        <Card>
+          <CardTitle>{t.orderDetail.cancelledTitle}</CardTitle>
+        </Card>
+      )}
+
+      {/* Same states the worker accepts OWNER_CANCEL in (orderMachine): anything before payment is confirmed. */}
+      {canFire(order.status, 'OWNER_CANCEL') && (
+        <CancelCard key={`${order.id}-cancel`} t={t} busy={busy} onSubmit={(reason) => run(() => ownerFetch(`/api/owner/orders/${order.id}/cancel`, token!, { method: 'POST', body: { reason }, ifMatch: order.version }))} />
+      )}
     </div>
   );
 }
@@ -313,6 +324,33 @@ function DispatchCard({ t, busy, onSubmit }: { t: Dictionary; busy: boolean; onS
         <Input placeholder={t.orderDetail.trackingPlaceholder} value={url} onChange={(e) => setUrl(e.target.value)} />
         <Button disabled={busy || !url} onClick={() => onSubmit(url)}>
           {t.orderDetail.dispatchSubmit}
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+function CancelCard({ t, busy, onSubmit }: { t: Dictionary; busy: boolean; onSubmit: (reason: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  if (!open) {
+    return (
+      <Button variant="secondary" className="w-full text-[var(--red)]" disabled={busy} onClick={() => setOpen(true)}>
+        {t.orderDetail.cancelOrder}
+      </Button>
+    );
+  }
+  return (
+    <Card>
+      <CardTitle>{t.orderDetail.cancelTitle}</CardTitle>
+      <p className="mt-1 text-xs text-[var(--muted)]">{t.orderDetail.cancelHint}</p>
+      <Input className="mt-2" placeholder={t.orderDetail.cancelReasonPlaceholder} value={reason} onChange={(e) => setReason(e.target.value)} />
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <Button variant="secondary" disabled={busy} onClick={() => setOpen(false)}>
+          {t.orderDetail.cancelBack}
+        </Button>
+        <Button variant="danger" disabled={busy || !reason.trim()} onClick={() => onSubmit(reason.trim())}>
+          {t.orderDetail.cancelConfirm}
         </Button>
       </div>
     </Card>

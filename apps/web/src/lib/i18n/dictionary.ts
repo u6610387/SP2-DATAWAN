@@ -88,6 +88,13 @@ export interface Dictionary {
     markDelivered: string;
     deliveredTitle: string;
     deliveredSummary: (total: string) => string;
+    cancelOrder: string;
+    cancelTitle: string;
+    cancelHint: string;
+    cancelReasonPlaceholder: string;
+    cancelConfirm: string;
+    cancelBack: string;
+    cancelledTitle: string;
   };
   inventory: {
     title: string;

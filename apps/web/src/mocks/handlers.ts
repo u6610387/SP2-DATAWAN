@@ -103,6 +103,7 @@ export async function mockFetch<T>(path: string, opts: RequestOptions): Promise<
     if (action === '/shipping') { applyShipping(o, body as { feeSatang: number }); return o as unknown as T; }
     if (action === '/dispatch') { o.status = 'DELIVERING'; o.trackingUrl = String(body?.trackingUrl ?? ''); return o as unknown as T; }
     if (action === '/delivered') { o.status = 'DELIVERED'; return o as unknown as T; }
+    if (action === '/cancel') { o.status = 'CANCELLED'; return o as unknown as T; }
   }
 
   const paymentMatch = /^\/api\/owner\/payments\/([^/]+)\/(confirm|reject)$/.exec(path);

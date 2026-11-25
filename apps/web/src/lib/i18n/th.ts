@@ -81,6 +81,13 @@ export const th: Dictionary = {
     markDelivered: 'ส่งถึงแล้ว',
     deliveredTitle: 'ส่งสำเร็จ',
     deliveredSummary: (total) => `ยอดขาย ${total} · ตัดสต็อกแล้ว`,
+    cancelOrder: 'ยกเลิกออเดอร์',
+    cancelTitle: 'ยกเลิกออเดอร์นี้?',
+    cancelHint: 'ยกเลิกได้ก่อนยืนยันการชำระเงินเท่านั้น ระบบจะไม่ส่งข้อความหาลูกค้า',
+    cancelReasonPlaceholder: 'เหตุผล (จำเป็น)',
+    cancelConfirm: 'ยืนยันยกเลิก',
+    cancelBack: 'ไม่ยกเลิก',
+    cancelledTitle: 'ยกเลิกแล้ว',
   },
   inventory: {
     title: 'สต็อกสินค้า',
