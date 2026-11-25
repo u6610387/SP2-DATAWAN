@@ -83,6 +83,9 @@ export interface Dictionary {
     slipOpenFull: string;
     slipImageMissing: string;
     slipImageError: string;
+    slipQrChecking: string;
+    slipQrError: string;
+    slipQrRecheck: string;
     overrideReasonPlaceholder: string;
     confirmPayment: string;
     rejectSlip: string;

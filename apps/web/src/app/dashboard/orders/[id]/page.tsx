@@ -145,6 +145,7 @@ export default function OrderDetailPage() {
           busy={busy}
           onConfirm={(overrideReason) => run(() => ownerFetch(`/api/owner/payments/${order.latestPayment!.id}/confirm`, token!, { method: 'POST', body: { overrideReason }, ifMatch: order.version }))}
           onReject={(reason) => run(() => ownerFetch(`/api/owner/payments/${order.latestPayment!.id}/reject`, token!, { method: 'POST', body: { reason }, ifMatch: order.version }))}
+          onQrDecoded={(payload) => run(() => ownerFetch(`/api/owner/payments/${order.latestPayment!.id}/qr`, token!, { method: 'POST', body: { payload } }))}
         />
       )}
 

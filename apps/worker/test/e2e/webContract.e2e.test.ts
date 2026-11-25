@@ -109,6 +109,7 @@ const BODY_SCHEMA: Record<string, keyof typeof Contracts> = {
   'POST /api/owner/orders/:param/shipping': 'ShippingRequest',
   'POST /api/owner/payments/:param/confirm': 'ConfirmPaymentRequest',
   'POST /api/owner/payments/:param/reject': 'RejectSlipRequest',
+  'POST /api/owner/payments/:param/qr': 'SlipQrRequest',
   'POST /api/owner/orders/:param/dispatch': 'DispatchRequest',
   'POST /api/owner/orders/:param/delivered': 'DeliveredRequest',
   'POST /api/owner/orders/:param/cancel': 'CancelOrderRequest',

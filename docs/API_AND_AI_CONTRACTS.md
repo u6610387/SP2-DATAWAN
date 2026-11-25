@@ -128,6 +128,7 @@ export interface PaymentCheckView {
 | POST | `/api/owner/orders/:id/note-send` | `{ draftId, messageTh, substitutes }` (owner-edited) | `OwnerOrderView` |
 | POST | `/api/owner/payments/:id/confirm` | `{ overrideReason? }` (required if result ≠ PASS) | `OwnerOrderView` |
 | POST | `/api/owner/payments/:id/reject` | `{ reason }` | `OwnerOrderView` |
+| POST | `/api/owner/payments/:id/qr` | `{ payload: string \| null }` (`SlipQrRequest`: Mini-QR text the owner's dashboard decoded from the stored slip; `null` = no QR found) | `OwnerOrderView`. Parses `00{00 000001, 01 bank, 02 transRef} 51 TH 91 CRC-16/CCITT-FALSE`; sets the `REFERENCE` check: PASS = valid CRC and unused transRef (stored in `payments.reference_no`), FAIL = bad CRC, a transRef already used by another order, or one that differs from the AI-read reference, WARN = no QR / not a slip QR. `check_result` = the worst check. Never changes order status; 409 once the payment is confirmed. Audit event `SLIP_QR_CHECKED` (actor owner) |
 | POST | `/api/owner/orders/:id/dispatch` | `{ trackingUrl }` | `OwnerOrderView` |
 | POST | `/api/owner/orders/:id/delivered` | `{ actualQty?: {itemId, actualQty}[] }` | `OwnerOrderView` |
 | POST | `/api/owner/orders/:id/cancel` | `{ reason }` (`CancelOrderRequest`, 1–200 chars) | `OwnerOrderView`. `OWNER_CANCEL`: any state before `PAID` (incl. `PAYMENT_EXPIRED`, `PAYMENT_REVIEW`), else 409. Sets `cancel_reason = 'owner: <reason>'`, clears `users.active_order_id` if it pointed at this order, no LINE push |

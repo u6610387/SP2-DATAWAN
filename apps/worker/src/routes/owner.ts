@@ -16,6 +16,7 @@ import {
   PushSubscriptionRequest,
   RejectSlipRequest,
   SetPriceRequest,
+  SlipQrRequest,
   ShippingRequest,
   StockAdjustRequest,
   type OrderRow,
@@ -27,6 +28,7 @@ import type { Bindings } from '../env';
 import { getQuotaStatus } from '../line/quota';
 import * as actions from '../services/orderActions';
 import { suggestPrice } from '../services/pricing';
+import { ownerCheckSlipQr } from '../services/slipQrCheck';
 import { splitPath } from '../services/storage';
 import { toOwnerOrderView } from '../services/views';
 import { startOfBangkokDay } from '../util/time';
@@ -188,6 +190,19 @@ export function createOwnerRoutes(deps: Deps) {
       return conflictError(c, r.reason, r.order);
     }
     return c.json(await buildOwnerView(deps, r.order));
+  });
+
+  // Owner's dashboard decoded the slip's Mini-QR; flag duplicate / tampered slips (never approves).
+  app.post('/payments/:id/qr', async (c) => {
+    const payment = await deps.repo.getPayment(c.req.param('id'));
+    if (!payment) return apiError(c, 'NOT_FOUND', 'payment not found', 404);
+    const order = await deps.repo.getOrder(payment.order_id);
+    if (!order) return apiError(c, 'NOT_FOUND', 'order not found', 404);
+    const parsed = SlipQrRequest.safeParse(await readJson(c));
+    if (!parsed.success) return apiError(c, 'VALIDATION_FAILED', parsed.error.message, 400);
+    const r = await ownerCheckSlipQr(deps, order, payment, c.get('ownerId'), parsed.data.payload);
+    if (!r.ok) return apiError(c, 'ORDER_STATE_INVALID', 'payment already confirmed', 409);
+    return c.json(await buildOwnerView(deps, order));
   });
 
   app.post('/payments/:id/reject', async (c) => {

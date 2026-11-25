@@ -35,7 +35,7 @@ describe('SlipPaymentCard', () => {
   it('WARN with no AI read still shows the check detail next to the image', () => {
     const html = render(order({ checks: [{ rule: 'READABLE', result: 'WARN', detail: 'ตรวจด้วยตนเอง: ระบบไม่ได้อ่านสลิปอัตโนมัติ' }] }));
     expect(html).toContain('<img');
-    expect(html).toContain('READABLE: ตรวจด้วยตนเอง');
+    expect(html).toMatch(/READABLE · WARN<\/span>: ตรวจด้วยตนเอง/);
   });
 
   it('says so instead of rendering nothing when the URL is missing', () => {

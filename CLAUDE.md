@@ -153,7 +153,7 @@ da-tawan-seafood/
 
 | # | Topic | Status / notes |
 |---|---|---|
-| D1 | **Slip images contain the payer's name and masked account.** Free-Tier Gemini content may be used by Google to improve products, so sending raw slips conflicts with §3.3. | Pipeline supports `GEMINI_SLIP_MODE = paid \| redacted \| manual`. Decide with advisor before pilot. `manual` = owner reads slip, code still checks ref uniqueness via QR decode. |
+| D1 | **Slip images contain the payer's name and masked account.** Free-Tier Gemini content may be used by Google to improve products, so sending raw slips conflicts with §3.3. | Pipeline supports `GEMINI_SLIP_MODE = paid \| redacted \| manual`. Decide with advisor before pilot. `manual` = owner reads slip, code still checks ref uniqueness via QR decode (built: the dashboard decodes the slip's Mini-QR, the worker checks the CRC + transRef uniqueness via `POST /api/owner/payments/:id/qr`; amount, receiver and time still need the owner's eyes, since a bank slip API is ruled out by §3.2). |
 | D2 | **Push budget vs. volume.** 15 orders/day ≈ 450 orders/month; even 1 push per order exceeds 300. | Presence-aware push (no push if customer's LIFF is open), "pull-on-message" replies, max 1 push per order, daily pacing. Measure real usage during pilot; report in thesis. |
 | D3 | Does owner's manual chat in LINE OA Manager count toward quota? | Verify on the real OA. If free, it becomes a zero-cost fallback for the tracking link. |
 | D4 | Payment expiry: 30, 45 or 60 min? Who absorbs a Lalamove price change? | Ask owner. Default `PAYMENT_EXPIRY_MINUTES=45`. |
