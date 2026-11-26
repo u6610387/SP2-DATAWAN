@@ -116,6 +116,7 @@ const BODY_SCHEMA: Record<string, keyof typeof Contracts> = {
   'POST /api/owner/stock': 'StockAdjustRequest',
   'POST /api/owner/categories': 'CategoryCreateRequest',
   'POST /api/owner/products': 'ProductCreateRequest',
+  'PATCH /api/owner/products/:param': 'ProductUpdateRequest',
   'POST /api/owner/push-subscriptions': 'PushSubscriptionRequest',
   'POST /api/liff/orders/:param/counter': 'CounterOfferRequest',
   'POST /api/liff/orders/:param/recipient': 'RecipientContactRequest',

@@ -3,10 +3,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AddCategoryForm } from '@/components/catalog/AddCategoryForm';
 import { AddProductForm } from '@/components/catalog/AddProductForm';
-import { groupStockByCategory, parseAliases, type StockRow } from '@/lib/catalog';
+import { extraAliases, groupStockByCategory, parseAliases, suggestCategory, type StockRow } from '@/lib/catalog';
+import { CategoryQuickSelect, ProductEditForm } from '@/components/catalog/ProductRowEditor';
 import { th } from '@/lib/i18n/th';
 
-const row = (productId: string, nameTh: string, categoryId: string | null): StockRow => ({ productId, nameTh, unit: 'kg', onHand: 1, categoryId, categoryName: null });
+const row = (productId: string, nameTh: string, categoryId: string | null, extra: Partial<StockRow> = {}): StockRow => ({ productId, nameTh, unit: 'kg', onHand: 1, categoryId, categoryName: null, isActive: true, aliases: [nameTh], ...extra });
 
 describe('groupStockByCategory', () => {
   it('orders by category sort, keeps empty categories, puts uncategorised (and unknown) last, sorts rows by Thai name', () => {
@@ -52,3 +53,37 @@ describe('add forms', () => {
     expect(th.catalog.addProductButton).toBe('+ เพิ่มสินค้า');
   });
 });
+
+// Production 2026-11-26: ปลาทับทิม landed in "ไม่มีหมวดหมู่" and couldn't be moved.
+describe('suggestCategory (auto-select while typing)', () => {
+  const cats = [{ id: 'c1', nameTh: 'ปลา', sort: 10 }, { id: 'c2', nameTh: 'ปลาหมึก', sort: 20 }, { id: 'c3', nameTh: 'กุ้ง', sort: 30 }];
+  it.each([
+    ['ปลาทับทิม', 'c1'],
+    ['ปลาหมึกกล้วย', 'c2'], // longest prefix wins over "ปลา"
+    ['  กุ้งแม่น้ำ ', 'c3'],
+    ['หัวปลาแซลมอน', 'c1'], // contains, when no prefix matches
+    ['หอยแครง', null],
+    ['', null],
+  ])('%s → %s', (name, id) => expect(suggestCategory(name, cats)?.id ?? null).toBe(id));
+});
+
+describe('row editing', () => {
+  const r = row('p1', 'ปลาทับทิม', null, { aliases: ['ปลาทับทิม', 'ทับทิม'] });
+  it('extraAliases hides the name (the server always re-adds it)', () => {
+    expect(extraAliases(r)).toEqual(['ทับทิม']);
+  });
+  it('one-tap category selector lists "no category" + every category, current one selected', () => {
+    const html = renderToStaticMarkup(<CategoryQuickSelect row={{ ...r, categoryId: 'c1' }} categories={[{ id: 'c1', nameTh: 'ปลา', sort: 10 }]} t={th} busy={false} onMove={() => {}} />);
+    expect(html).toContain(th.catalog.moveToCategory);
+    expect(html).toMatch(/<option value="c1" selected="">ปลา<\/option>/);
+    expect(html).toContain('>ไม่มีหมวดหมู่</option>');
+  });
+  it('edit form pre-fills name, extra aliases and the open-for-sale toggle', () => {
+    const html = renderToStaticMarkup(<ProductEditForm row={r} t={th} busy={false} onSave={() => {}} onCancel={() => {}} />);
+    expect(html).toContain('value="ปลาทับทิม"');
+    expect(html).toContain('value="ทับทิม"');
+    expect(html).toMatch(/type="checkbox"[^>]*checked=""/);
+    expect(html).toContain(th.catalog.openForSale);
+  });
+});
+

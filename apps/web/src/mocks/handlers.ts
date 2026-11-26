@@ -91,9 +91,22 @@ export async function mockFetch<T>(path: string, opts: RequestOptions): Promise<
     mockCategories.push(c);
     return c as unknown as T;
   }
+  const productPatch = /^\/api\/owner\/products\/([^/]+)$/.exec(path);
+  if (productPatch && method === 'PATCH') {
+    const row = mockStock.find((x) => x.productId === productPatch[1]);
+    if (!row) throw new ApiRequestError(404, 'NOT_FOUND', 'ไม่พบสินค้านี้');
+    if (body?.categoryId !== undefined) {
+      const cat = mockCategories.find((c) => c.id === body.categoryId) ?? null;
+      row.categoryId = cat?.id ?? null;
+      row.categoryName = cat?.nameTh ?? null;
+    }
+    if (typeof body?.nameTh === 'string') row.nameTh = body.nameTh;
+    if (typeof body?.isActive === 'boolean') row.isActive = body.isActive;
+    return row as unknown as T;
+  }
   if (path === '/api/owner/products' && method === 'POST') {
     const cat = mockCategories.find((c) => c.id === body?.categoryId) ?? null;
-    const row = { productId: `mock-p-${Date.now()}`, nameTh: String(body?.nameTh ?? ''), unit: String(body?.unit ?? 'kg'), onHand: 0, categoryId: cat?.id ?? null, categoryName: cat?.nameTh ?? null };
+    const row = { productId: `mock-p-${Date.now()}`, nameTh: String(body?.nameTh ?? ''), unit: String(body?.unit ?? 'kg'), onHand: 0, categoryId: cat?.id ?? null, categoryName: cat?.nameTh ?? null, isActive: true, aliases: [] as string[] };
     mockStock.push(row as (typeof mockStock)[number]);
     return row as unknown as T;
   }

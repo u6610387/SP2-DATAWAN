@@ -70,6 +70,9 @@ export interface Repo {
   /** Throws on a duplicate active name (unique index categories_name_active_uidx). */
   insertCategory(c: { name_th: string; sort?: number }): Promise<import('@datawan/shared').CategoryRow>;
   /** Throws on a duplicate active name (unique index products_name_active_uidx). */
+  getProduct(id: string): Promise<ProductRow | null>;
+  /** Throws on a duplicate active name (unique index products_name_active_uidx). */
+  updateProduct(id: string, patch: Partial<Pick<ProductRow, 'name_th' | 'aliases' | 'unit' | 'prep_types' | 'category_id' | 'is_active'>>): Promise<ProductRow>;
   insertProduct(p: { name_th: string; aliases: string[]; unit: ProductRow['unit']; prep_types: ProductRow['prep_types']; category_id: string | null }): Promise<ProductRow>;
 
   createOrder(order: NewOrder, items: NewOrderItem[]): Promise<OrderRow>;

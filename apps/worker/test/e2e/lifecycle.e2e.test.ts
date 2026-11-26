@@ -693,5 +693,64 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
       `select i.product_id, i.qty::text as qty, i.unit from order_items i join orders o on o.id = i.order_id order by o.created_at desc limit 1`)).rows[0]!;
     expect({ ...item, qty: Number(item.qty) }).toEqual({ product_id: tilapia.id, qty: 2, unit: 'kg' });
   }, 60_000);
+
+  // Production 2026-11-26: ปลาทับทิม was created without a category (and without its "ทับทิม" alias);
+  // re-adding it failed with "มีสินค้าชื่อนี้อยู่แล้ว" and nothing could move it into "ปลา".
+  it('catalog edit: re-add assigns the category + merges aliases; PATCH moves/renames/deactivates; parser follows', async () => {
+    const req = <T,>(method: 'POST' | 'PATCH', path: string, body: unknown) => web.ownerFetch<T>(path, OWNER_TOKEN, { method, body });
+    type Prod = { id: string; nameTh: string; aliases: string[]; categoryId: string | null; isActive: boolean; merged?: boolean };
+    type Cat = { id: string; nameTh: string };
+    const crab = await req<Cat>('POST', '/api/owner/categories', { nameTh: 'ปู' });
+    const shrimp = await req<Cat>('POST', '/api/owner/categories', { nameTh: 'กุ้ง' });
+
+    // Created uncategorised and without the short alias (as on production).
+    const p = await req<Prod>('POST', '/api/owner/products', { nameTh: 'ปูนิ่ม', unit: 'kg' });
+    expect(p).toMatchObject({ categoryId: null, aliases: ['ปูนิ่ม'] });
+
+    // Re-adding the same name WITHOUT a category is still a duplicate.
+    await expect(req('POST', '/api/owner/products', { nameTh: 'ปูนิ่ม', unit: 'kg' })).rejects.toMatchObject({ status: 409, code: 'DUPLICATE' });
+    // Re-adding WITH a category assigns it to the existing product and merges new aliases (no duplicate row).
+    const merged = await req<Prod>('POST', '/api/owner/products', { nameTh: ' ปูนิ่ม ', unit: 'kg', aliases: ['ปูนิ่มทอด'], categoryId: crab.id });
+    expect(merged).toMatchObject({ id: p.id, categoryId: crab.id, aliases: ['ปูนิ่ม', 'ปูนิ่มทอด'], merged: true });
+    expect((await db.query<{ n: number }>(`select count(*)::int as n from products where name_th = 'ปูนิ่ม'`)).rows[0]!.n).toBe(1);
+    // Once it has a category, re-adding is a duplicate again (no silent re-categorising).
+    await expect(req('POST', '/api/owner/products', { nameTh: 'ปูนิ่ม', unit: 'kg', categoryId: shrimp.id })).rejects.toMatchObject({ status: 409 });
+    // Merge still refuses an alias owned by another product.
+    const q = await req<Prod>('POST', '/api/owner/products', { nameTh: 'ปูไข่', unit: 'kg' });
+    await expect(req('POST', '/api/owner/products', { nameTh: 'ปูไข่', unit: 'kg', aliases: ['ปูนิ่มทอด'], categoryId: crab.id })).rejects.toMatchObject({ status: 409, message: expect.stringContaining('ปูนิ่ม') });
+
+    // PATCH: move a seed product into a category, edit aliases, rename, deactivate/reactivate.
+    const kung = (await db.query<{ id: string }>(`select id from products where name_th = 'กุ้งแม่น้ำ'`)).rows[0]!.id;
+    let k = await req<Prod>('PATCH', `/api/owner/products/${kung}`, { categoryId: shrimp.id });
+    expect(k).toMatchObject({ categoryId: shrimp.id, nameTh: 'กุ้งแม่น้ำ' });
+    k = await req<Prod>('PATCH', `/api/owner/products/${kung}`, { categoryId: null });
+    expect(k.categoryId).toBeNull();
+    k = await req<Prod>('PATCH', `/api/owner/products/${q.id}`, { aliases: ['ไข่ปู'] });
+    expect(k.aliases).toEqual(['ปูไข่', 'ไข่ปู']); // name always kept
+    await expect(req('PATCH', `/api/owner/products/${q.id}`, { nameTh: 'ปูนิ่ม' })).rejects.toMatchObject({ status: 409 });
+    await expect(req('PATCH', `/api/owner/products/${q.id}`, { aliases: ['กุ้งใหญ่'] })).rejects.toMatchObject({ status: 409, message: expect.stringContaining('กุ้งแม่น้ำ') });
+    await expect(req('PATCH', `/api/owner/products/${q.id}`, { categoryId: '00000000-0000-4000-8000-000000000000' })).rejects.toMatchObject({ status: 404 });
+    await expect(req('PATCH', `/api/owner/products/00000000-0000-4000-8000-000000000000`, { categoryId: null })).rejects.toMatchObject({ status: 404 });
+    await expect(req('PATCH', `/api/owner/products/${q.id}`, {})).rejects.toMatchObject({ status: 400 });
+    k = await req<Prod>('PATCH', `/api/owner/products/${q.id}`, { nameTh: 'ปูไข่ดอง' });
+    expect(k).toMatchObject({ nameTh: 'ปูไข่ดอง', aliases: ['ปูไข่ดอง', 'ไข่ปู'] }); // old name dropped, new name added
+
+    // Stock list reports active state; a deactivated product disappears from the parser's catalog.
+    k = await req<Prod>('PATCH', `/api/owner/products/${q.id}`, { isActive: false });
+    expect(k.isActive).toBe(false);
+    let stock = await web.ownerFetch<{ productId: string; isActive: boolean; categoryName: string | null }[]>('/api/owner/stock', OWNER_TOKEN);
+    expect(stock.find((r) => r.productId === q.id)).toMatchObject({ isActive: false });
+    expect(stock.find((r) => r.productId === p.id)).toMatchObject({ isActive: true, categoryName: 'ปู' });
+    await req('PATCH', `/api/owner/products/${q.id}`, { isActive: true });
+    stock = await web.ownerFetch('/api/owner/stock', OWNER_TOKEN);
+    expect(stock.find((r) => r.productId === q.id)!.isActive).toBe(true);
+
+    // The parser follows the edit: the alias added by the merge is recognised in chat (as a new order,
+    // or as an edit of a draft the customer still has open — either way the line maps to ปูนิ่ม).
+    await customerText('ปูนิ่มทอด 1 โล');
+    const prompt = JSON.stringify(line.replies.at(-1)!.messages);
+    if (prompt.includes('"data":"a=new')) await webhook(CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'new') } });
+    expect((await db.query<{ n: number }>('select count(*)::int as n from order_items where product_id = $1', [p.id])).rows[0]!.n).toBeGreaterThan(0);
+  }, 60_000);
 });
 

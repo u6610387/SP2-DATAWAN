@@ -11,6 +11,7 @@ import {
   CancelOrderRequest,
   CategoryCreateRequest,
   ProductCreateRequest,
+  ProductUpdateRequest,
   type CategoryRow,
   type ProductRow,
   ConfirmPaymentRequest,
@@ -31,7 +32,7 @@ import type { Deps } from '../deps';
 import type { Bindings } from '../env';
 import { getQuotaStatus } from '../line/quota';
 import * as actions from '../services/orderActions';
-import { createCategory, createProduct } from '../services/catalog';
+import { createCategory, createProduct, updateProduct } from '../services/catalog';
 import { suggestPrice } from '../services/pricing';
 import { ownerCheckSlipQr } from '../services/slipQrCheck';
 import { splitPath } from '../services/storage';
@@ -317,12 +318,27 @@ export function createOwnerRoutes(deps: Deps) {
       if (r.reason === 'ALIAS_TAKEN') return apiError(c, 'DUPLICATE', `คำเรียก "${r.alias}" ใช้กับสินค้า ${r.productName} อยู่แล้ว`, 409);
       return apiError(c, 'DUPLICATE', 'มีสินค้าชื่อนี้อยู่แล้ว', 409);
     }
-    return c.json(productView(r.product), 201);
+    return c.json({ ...productView(r.product), ...(r.merged ? { merged: true } : {}) }, r.merged ? 200 : 201);
+  });
+
+  // Edit / move an existing product from the สต็อก list.
+  app.patch('/products/:id', async (c) => {
+    const parsed = ProductUpdateRequest.safeParse(await readJson(c));
+    if (!parsed.success) return apiError(c, 'VALIDATION_FAILED', parsed.error.issues.map((i) => i.message).join('; '), 400);
+    const r = await updateProduct(deps, c.req.param('id'), parsed.data);
+    if (!r.ok) {
+      if (r.reason === 'NOT_FOUND') return apiError(c, 'NOT_FOUND', 'ไม่พบสินค้านี้', 404);
+      if (r.reason === 'CATEGORY_NOT_FOUND') return apiError(c, 'NOT_FOUND', 'ไม่พบหมวดหมู่นี้', 404);
+      if (r.reason === 'ALIAS_TAKEN') return apiError(c, 'DUPLICATE', `คำเรียก "${r.alias}" ใช้กับสินค้า ${r.productName} อยู่แล้ว`, 409);
+      return apiError(c, 'DUPLICATE', 'มีสินค้าชื่อนี้อยู่แล้ว', 409);
+    }
+    return c.json(productView(r.product));
   });
 
   app.get('/stock', async (c) => {
-    const rows = await deps.repo.listProductStock();
-    return c.json(rows.map((r) => ({ productId: r.product_id, nameTh: r.name_th, unit: r.unit, onHand: r.on_hand, categoryId: r.category_id ?? null, categoryName: r.category_name ?? null })));
+    const [rows, active] = await Promise.all([deps.repo.listProductStock(), deps.repo.listActiveProducts()]);
+    const activeById = new Map(active.map((p) => [p.id, p]));
+    return c.json(rows.map((r) => ({ productId: r.product_id, nameTh: r.name_th, unit: r.unit, onHand: r.on_hand, categoryId: r.category_id ?? null, categoryName: r.category_name ?? null, isActive: activeById.has(r.product_id), aliases: activeById.get(r.product_id)?.aliases ?? [] })));
   });
 
   app.post('/stock', async (c) => {

@@ -61,6 +61,12 @@ export class SupabaseRepo implements Repo {
   async insertCategory(c: { name_th: string; sort?: number }) {
     return must(await this.db.from('categories').insert(c).select('*').single(), 'insertCategory');
   }
+  async getProduct(id: string) {
+    return must(await this.db.from('products').select('*').eq('id', id).maybeSingle(), 'getProduct');
+  }
+  async updateProduct(id: string, patch: Partial<Pick<ProductRow, 'name_th' | 'aliases' | 'unit' | 'prep_types' | 'category_id' | 'is_active'>>) {
+    return must(await this.db.from('products').update(patch).eq('id', id).select('*').single(), 'updateProduct');
+  }
   async insertProduct(p: { name_th: string; aliases: string[]; unit: ProductRow['unit']; prep_types: ProductRow['prep_types']; category_id: string | null }) {
     return must(await this.db.from('products').insert(p).select('*').single(), 'insertProduct');
   }

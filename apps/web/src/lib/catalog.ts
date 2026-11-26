@@ -6,6 +6,10 @@ export interface StockRow {
   onHand: number;
   categoryId: string | null;
   categoryName: string | null;
+  /** false = closed for sale (hidden from the order parser). */
+  isActive: boolean;
+  /** Active products only; includes the name. */
+  aliases: string[];
 }
 export interface Category {
   id: string;
@@ -43,3 +47,21 @@ export function parseAliases(text: string): string[] {
 
 export const UNIT_OPTIONS = ['kg', 'piece', 'box', 'tray', 'set'] as const;
 export const PREP_OPTIONS = ['live', 'chilled', 'frozen', 'cooked', 'any'] as const;
+
+const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
+ * Category to pre-select from a typed product name: the longest category name the product name
+ * starts with ("ปลาทับทิม" → "ปลา"), else the longest one it contains; null if none.
+ */
+export function suggestCategory(productName: string, categories: Category[]): Category | null {
+  const n = norm(productName);
+  if (!n) return null;
+  const byLen = [...categories].filter((c) => norm(c.nameTh)).sort((a, b) => norm(b.nameTh).length - norm(a.nameTh).length);
+  return byLen.find((c) => n.startsWith(norm(c.nameTh))) ?? byLen.find((c) => n.includes(norm(c.nameTh))) ?? null;
+}
+
+/** Aliases shown in the editor: everything except the name itself (the server always re-adds it). */
+export function extraAliases(row: Pick<StockRow, 'nameTh' | 'aliases'>): string[] {
+  return row.aliases.filter((a) => norm(a) !== norm(row.nameTh));
+}

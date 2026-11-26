@@ -12,6 +12,7 @@ import { useOwnerAuth } from '@/lib/ownerAuth';
 import { groupStockByCategory, type Category, type StockRow } from '@/lib/catalog';
 import { AddCategoryForm } from '@/components/catalog/AddCategoryForm';
 import { AddProductForm, type NewProduct } from '@/components/catalog/AddProductForm';
+import { CategoryQuickSelect, ProductEditForm, type ProductPatch } from '@/components/catalog/ProductRowEditor';
 
 
 type Reason = 'stock_in' | 'waste' | 'adjust';
@@ -23,18 +24,19 @@ export default function InventoryPage() {
   const { data: categories, mutate: mutateCategories } = useSWR(token ? ['categories', token] : null, () => ownerFetch<Category[]>('/api/owner/categories', token!));
   const [open, setOpen] = useState<string | null>(null);
   const [adding, setAdding] = useState<'category' | 'product' | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  async function save(fn: () => Promise<unknown>, ok: string) {
+  async function save<T>(fn: () => Promise<T>, ok: string | ((result: T) => string)) {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      await fn();
+      const result = await fn();
       setAdding(null);
-      setNotice(ok);
+      setNotice(typeof ok === 'function' ? ok(result) : ok);
       await Promise.all([mutate(), mutateCategories()]);
     } catch (e) {
       setError(e instanceof ApiRequestError ? e.message : t.common.error);
@@ -47,9 +49,19 @@ export default function InventoryPage() {
     save(() => ownerFetch('/api/owner/categories', token!, { method: 'POST', body: { nameTh } }), t.catalog.categoryAdded(nameTh));
   const addProduct = (p: NewProduct) =>
     save(
-      () => ownerFetch('/api/owner/products', token!, { method: 'POST', body: { nameTh: p.nameTh, unit: p.unit, prepTypes: p.prepTypes, aliases: p.aliases, categoryId: p.categoryId } }),
-      t.catalog.productAdded(p.nameTh),
+      () => ownerFetch<{ merged?: boolean }>('/api/owner/products', token!, { method: 'POST', body: { nameTh: p.nameTh, unit: p.unit, prepTypes: p.prepTypes, aliases: p.aliases, categoryId: p.categoryId } }),
+      (res) => (res?.merged ? t.catalog.productMerged(p.nameTh, categories?.find((c) => c.id === p.categoryId)?.nameTh ?? '') : t.catalog.productAdded(p.nameTh)),
     );
+  const moveProduct = (row: StockRow, categoryId: string | null) =>
+    save(
+      () => ownerFetch(`/api/owner/products/${row.productId}`, token!, { method: 'PATCH', body: { categoryId } }),
+      t.catalog.productMoved(row.nameTh, categories?.find((c) => c.id === categoryId)?.nameTh ?? t.catalog.noCategory),
+    );
+  const editProduct = (row: StockRow, p: ProductPatch) =>
+    save(
+      () => ownerFetch(`/api/owner/products/${row.productId}`, token!, { method: 'PATCH', body: { nameTh: p.nameTh, aliases: p.aliases, isActive: p.isActive } }),
+      t.catalog.productSaved(p.nameTh ?? row.nameTh),
+    ).then(() => setEditing(null));
   const groups = stock ? groupStockByCategory(stock, categories ?? []) : null;
 
   return (
@@ -84,12 +96,24 @@ export default function InventoryPage() {
                   aria-expanded={open === row.productId}
                   onClick={() => setOpen(open === row.productId ? null : row.productId)}
                 >
-                  <span>{row.nameTh}</span>
+                  <span className={row.isActive ? '' : 'text-[var(--muted)] line-through'}>
+                    {row.nameTh}
+                    {!row.isActive && <span className="ml-2 rounded bg-black/5 px-1.5 text-xs no-underline">{t.catalog.closedForSale}</span>}
+                  </span>
                   <span className="font-semibold">
                     {row.onHand} {row.unit}
                   </span>
                 </button>
                 {open === row.productId && (
+                  <>
+                  <CategoryQuickSelect row={row} categories={categories ?? []} t={t} busy={busy} onMove={(categoryId) => void moveProduct(row, categoryId)} />
+                  {editing === row.productId ? (
+                    <ProductEditForm row={row} t={t} busy={busy} onSave={(p) => void editProduct(row, p)} onCancel={() => setEditing(null)} />
+                  ) : (
+                    <Button variant="secondary" size="sm" className="mt-2" disabled={busy} onClick={() => setEditing(row.productId)}>
+                      {t.catalog.editProduct}
+                    </Button>
+                  )}
                   <AdjustForm
                     t={t}
                     token={token!}
@@ -99,6 +123,7 @@ export default function InventoryPage() {
                       void mutate();
                     }}
                   />
+                  </>
                 )}
               </li>
             ))}
