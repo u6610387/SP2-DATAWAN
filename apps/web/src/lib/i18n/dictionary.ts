@@ -75,6 +75,15 @@ export interface Dictionary {
     shippingCorrectTitle: string;
     shippingCorrectHint: (current: string) => string;
     lalamoveTitle: string;
+    lalamovePin: string;
+    lalamoveOpenMap: string;
+    lalamoveName: string;
+    lalamovePhone: string;
+    lalamovePhoneHint: (digits: string) => string;
+    lalamoveAddress: string;
+    lalamoveCopyAll: string;
+    lalamoveCopied: string;
+    lalamoveMissing: string;
     awaitingPaymentTitle: string;
     expiresAt: (time: string) => string;
     paymentTitle: string;
