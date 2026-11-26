@@ -107,9 +107,9 @@ export const mockQuota: QuotaStatus = {
 };
 
 export const mockStock = [
-  { productId: 'p-kung', nameTh: 'กุ้งแม่น้ำ', unit: 'kg', onHand: 8 },
-  { productId: 'p-pu', nameTh: 'ปูม้า', unit: 'kg', onHand: 5.5 },
-  { productId: 'p-hoi', nameTh: 'หอยแครง', unit: 'kg', onHand: 12 },
+  { productId: 'p-kung', nameTh: 'กุ้งแม่น้ำ', unit: 'kg', onHand: 8, categoryId: null as string | null, categoryName: null as string | null },
+  { productId: 'p-pu', nameTh: 'ปูม้า', unit: 'kg', onHand: 5.5, categoryId: null as string | null, categoryName: null as string | null },
+  { productId: 'p-hoi', nameTh: 'หอยแครง', unit: 'kg', onHand: 12, categoryId: null as string | null, categoryName: null as string | null },
 ];
 
 export const mockSummary = {
@@ -118,3 +118,6 @@ export const mockSummary = {
   shippingCollectedSatang: 36000,
   grossMarginSatang: 120000,
 };
+
+
+export const mockCategories: { id: string; nameTh: string; sort: number }[] = [];

@@ -72,6 +72,17 @@ export interface ProductRow {
   unit: Unit;
   prep_types: PrepType[];
   is_active: boolean;
+  /** 0006: optional grouping for the owner's สต็อก tab. */
+  category_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CategoryRow {
+  id: string;
+  name_th: string;
+  sort: number;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -204,6 +215,8 @@ export interface ProductStockRow {
   name_th: string;
   unit: Unit;
   on_hand: number;
+  category_id: string | null;
+  category_name: string | null;
 }
 
 export interface PushSubscriptionRow {

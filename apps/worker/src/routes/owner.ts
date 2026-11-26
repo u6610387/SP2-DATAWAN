@@ -9,6 +9,10 @@ import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
 import {
   CancelOrderRequest,
+  CategoryCreateRequest,
+  ProductCreateRequest,
+  type CategoryRow,
+  type ProductRow,
   ConfirmPaymentRequest,
   DeliveredRequest,
   DispatchRequest,
@@ -27,6 +31,7 @@ import type { Deps } from '../deps';
 import type { Bindings } from '../env';
 import { getQuotaStatus } from '../line/quota';
 import * as actions from '../services/orderActions';
+import { createCategory, createProduct } from '../services/catalog';
 import { suggestPrice } from '../services/pricing';
 import { ownerCheckSlipQr } from '../services/slipQrCheck';
 import { splitPath } from '../services/storage';
@@ -35,6 +40,13 @@ import { startOfBangkokDay } from '../util/time';
 import { apiError, checkIfMatch, conflictError, deliveryIncompleteError } from './respond';
 
 type Env = { Bindings: Bindings; Variables: { ownerId: string } };
+
+function productView(p: ProductRow) {
+  return { id: p.id, nameTh: p.name_th, unit: p.unit, isActive: p.is_active, aliases: p.aliases, prepTypes: p.prep_types, categoryId: p.category_id ?? null };
+}
+function categoryView(c: CategoryRow) {
+  return { id: c.id, nameTh: c.name_th, sort: c.sort };
+}
 
 function bearerToken(c: Context): string | null {
   const h = c.req.header('authorization');
@@ -282,12 +294,35 @@ export function createOwnerRoutes(deps: Deps) {
 
   app.get('/products', async (c) => {
     const products = await deps.repo.listActiveProducts();
-    return c.json(products.map((p) => ({ id: p.id, nameTh: p.name_th, unit: p.unit, isActive: p.is_active })));
+    return c.json(products.map(productView));
+  });
+
+  // สต็อก tab: categories + new products (owner only; the service role never reaches the browser).
+  app.get('/categories', async (c) => c.json((await deps.repo.listActiveCategories()).map(categoryView)));
+
+  app.post('/categories', async (c) => {
+    const parsed = CategoryCreateRequest.safeParse(await readJson(c));
+    if (!parsed.success) return apiError(c, 'VALIDATION_FAILED', parsed.error.issues.map((i) => i.message).join('; '), 400);
+    const r = await createCategory(deps, parsed.data.nameTh);
+    if (!r.ok) return apiError(c, 'DUPLICATE', 'มีหมวดหมู่ชื่อนี้อยู่แล้ว', 409);
+    return c.json(categoryView(r.category), 201);
+  });
+
+  app.post('/products', async (c) => {
+    const parsed = ProductCreateRequest.safeParse(await readJson(c));
+    if (!parsed.success) return apiError(c, 'VALIDATION_FAILED', parsed.error.issues.map((i) => i.message).join('; '), 400);
+    const r = await createProduct(deps, parsed.data);
+    if (!r.ok) {
+      if (r.reason === 'CATEGORY_NOT_FOUND') return apiError(c, 'NOT_FOUND', 'ไม่พบหมวดหมู่นี้', 404);
+      if (r.reason === 'ALIAS_TAKEN') return apiError(c, 'DUPLICATE', `คำเรียก "${r.alias}" ใช้กับสินค้า ${r.productName} อยู่แล้ว`, 409);
+      return apiError(c, 'DUPLICATE', 'มีสินค้าชื่อนี้อยู่แล้ว', 409);
+    }
+    return c.json(productView(r.product), 201);
   });
 
   app.get('/stock', async (c) => {
     const rows = await deps.repo.listProductStock();
-    return c.json(rows.map((r) => ({ productId: r.product_id, nameTh: r.name_th, unit: r.unit, onHand: r.on_hand })));
+    return c.json(rows.map((r) => ({ productId: r.product_id, nameTh: r.name_th, unit: r.unit, onHand: r.on_hand, categoryId: r.category_id ?? null, categoryName: r.category_name ?? null })));
   });
 
   app.post('/stock', async (c) => {

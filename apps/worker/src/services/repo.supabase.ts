@@ -4,7 +4,7 @@
  * generated total_satang, unique indexes and status guards.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { FINAL_STATUSES, type OrderRow, type OrderStatus } from '@datawan/shared';
+import { FINAL_STATUSES, type OrderRow, type OrderStatus, type ProductRow } from '@datawan/shared';
 import type { NewOrder, NewOrderItem, Repo } from './repo';
 
 const OPEN_FILTER = `(${FINAL_STATUSES.map((s) => `"${s}"`).join(',')})`;
@@ -52,6 +52,18 @@ export class SupabaseRepo implements Repo {
     must(await this.db.from('users').update({ is_active: false }).eq('id', userId), 'markUserInactive');
   }
 
+  async listActiveCategories() {
+    return must(await this.db.from('categories').select('*').eq('is_active', true).order('sort').order('name_th'), 'listCategories');
+  }
+  async getCategory(id: string) {
+    return must(await this.db.from('categories').select('*').eq('id', id).maybeSingle(), 'getCategory');
+  }
+  async insertCategory(c: { name_th: string; sort?: number }) {
+    return must(await this.db.from('categories').insert(c).select('*').single(), 'insertCategory');
+  }
+  async insertProduct(p: { name_th: string; aliases: string[]; unit: ProductRow['unit']; prep_types: ProductRow['prep_types']; category_id: string | null }) {
+    return must(await this.db.from('products').insert(p).select('*').single(), 'insertProduct');
+  }
   async listActiveProducts() {
     return must(await this.db.from('products').select('*').eq('is_active', true).order('name_th'), 'listProducts');
   }

@@ -651,5 +651,47 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     expect(reply).toContain(`/orders/${id}`); // LIFF payment-screen button
     expect(reply).toContain('"type":"uri"');
   }, 60_000);
+
+  // สต็อก tab: owner adds categories + products through owner routes; the order parser recognises
+  // a new product on the next customer message (it reads the active catalog every time).
+  it('catalog: add category + product (validation, duplicates, alias clash), stock shows it, parser recognises it', async () => {
+    const post = <T,>(path: string, body: unknown) => web.ownerFetch<T>(path, OWNER_TOKEN, { method: 'POST', body });
+    type Cat = { id: string; nameTh: string; sort: number };
+    type Prod = { id: string; nameTh: string; unit: string; aliases: string[]; prepTypes: string[]; categoryId: string | null };
+
+    expect(await web.ownerFetch<Cat[]>('/api/owner/categories', OWNER_TOKEN)).toEqual([]);
+    const fish = await post<Cat>('/api/owner/categories', { nameTh: '  ปลา  ' });
+    expect(fish.nameTh).toBe('ปลา');
+    await expect(post('/api/owner/categories', { nameTh: 'ปลา' })).rejects.toMatchObject({ status: 409, code: 'DUPLICATE' });
+    await expect(post('/api/owner/categories', { nameTh: '   ' })).rejects.toMatchObject({ status: 400 });
+    const shell = await post<Cat>('/api/owner/categories', { nameTh: 'หอย' });
+    expect((await web.ownerFetch<Cat[]>('/api/owner/categories', OWNER_TOKEN)).map((c) => c.nameTh)).toEqual(['ปลา', 'หอย']);
+    expect(shell.sort).toBeGreaterThan(fish.sort);
+
+    const tilapia = await post<Prod>('/api/owner/products', { nameTh: 'ปลาทับทิม', unit: 'kg', prepTypes: ['live', 'chilled'], aliases: ['ทับทิม', 'ป', ' ทับทิม '], categoryId: fish.id });
+    expect(tilapia).toMatchObject({ nameTh: 'ปลาทับทิม', unit: 'kg', prepTypes: ['live', 'chilled'], categoryId: fish.id });
+    expect(tilapia.aliases).toEqual(['ปลาทับทิม', 'ทับทิม']); // name always included; 1-char + duplicates dropped
+
+    await expect(post('/api/owner/products', { nameTh: 'ปลาทับทิม', unit: 'kg' })).rejects.toMatchObject({ status: 409, code: 'DUPLICATE' });
+    await expect(post('/api/owner/products', { nameTh: 'ปลาเก๋า', unit: 'kg', aliases: ['กะพง'] })).rejects.toMatchObject({ status: 409, message: expect.stringContaining('ปลากะพง') });
+    await expect(post('/api/owner/products', { nameTh: 'ปลาเก๋า', unit: 'kg', categoryId: '00000000-0000-4000-8000-000000000000' })).rejects.toMatchObject({ status: 404 });
+    await expect(post('/api/owner/products', { nameTh: 'ปลาเก๋า', unit: 'bucket' })).rejects.toMatchObject({ status: 400 });
+    const noCat = await post<Prod>('/api/owner/products', { nameTh: 'ปลาเก๋า', unit: 'kg' });
+    expect(noCat).toMatchObject({ categoryId: null, prepTypes: ['any'], aliases: ['ปลาเก๋า'] });
+
+    const stock = await web.ownerFetch<{ productId: string; categoryName: string | null }[]>('/api/owner/stock', OWNER_TOKEN);
+    expect(stock.find((r) => r.productId === tilapia.id)).toMatchObject({ categoryName: 'ปลา' });
+    expect(stock.find((r) => r.productId === noCat.id)).toMatchObject({ categoryName: null });
+
+    // Customer orders the new product by its alias → the parser maps it to the new product.
+    const before = (await db.query<{ n: number }>('select count(*)::int as n from orders')).rows[0]!.n;
+    await customerText('ทับทิม 2 โล');
+    if ((await db.query<{ n: number }>('select count(*)::int as n from orders')).rows[0]!.n === before) {
+      await webhook(CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'new') } });
+    }
+    const item = (await db.query<{ product_id: string; qty: string; unit: string }>(
+      `select i.product_id, i.qty::text as qty, i.unit from order_items i join orders o on o.id = i.order_id order by o.created_at desc limit 1`)).rows[0]!;
+    expect({ ...item, qty: Number(item.qty) }).toEqual({ product_id: tilapia.id, qty: 2, unit: 'kg' });
+  }, 60_000);
 });
 

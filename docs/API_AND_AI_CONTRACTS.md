@@ -135,7 +135,11 @@ export interface PaymentCheckView {
 | POST | `/api/owner/orders/:id/cancel` | `{ reason }` (`CancelOrderRequest`, 1–200 chars) | `OwnerOrderView`. `OWNER_CANCEL`: any state before `PAID` (incl. `PAYMENT_EXPIRED`, `PAYMENT_REVIEW`), else 409. Sets `cancel_reason = 'owner: <reason>'`, clears `users.active_order_id` if it pointed at this order, no LINE push |
 | POST | `/api/owner/supplier-bills` | multipart `image` | `{ billId, result: SupplierBillResult, flags: BillFlag[] }` |
 | POST | `/api/owner/supplier-bills/:id/save` | `{ supplierName?, billDate?, lines: {productId, qty, unitCostSatang}[] }` | `{ stockLogIds[] }` |
-| GET/POST/PATCH | `/api/owner/products[/:id]` | product fields | product(s) |
+| GET | `/api/owner/products` | – | `{ id, nameTh, unit, isActive, aliases, prepTypes, categoryId }[]` (active) |
+| POST | `/api/owner/products` | `ProductCreateRequest { nameTh, unit, prepTypes = ['any'], aliases = [], categoryId = null }` | 201 product. The name is always added as an alias (aliases < 2 chars dropped, de-duplicated), so the order parser, which reads the active catalog on every message, recognises it at once. **409 `DUPLICATE`** for an existing active name or an alias already used by another active product; 404 for an unknown category |
+| GET / POST | `/api/owner/categories` | POST `CategoryCreateRequest { nameTh }` | `{ id, nameTh, sort }[]` / 201 category; 409 `DUPLICATE` for a name already active (migration `0006`: `categories` + `products.category_id`) |
+| PATCH | `/api/owner/products/:id` | product fields | product (not built yet) |
+| GET | `/api/owner/stock` | – | `{ productId, nameTh, unit, onHand, categoryId, categoryName }[]` (`product_stock` view) |
 | POST | `/api/owner/stock` | `{ productId, reason, qtyDelta, unitCostSatang?, note? }` | `{ stockLogId }` |
 | GET | `/api/owner/price-history?productId=` | – | `{ points: {kind, unitPriceSatang, recordedAt}[] }` |
 | GET | `/api/owner/quota` | – | `QuotaStatus` |

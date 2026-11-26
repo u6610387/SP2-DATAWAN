@@ -9,13 +9,10 @@ import { ApiRequestError, ownerFetch } from '@/lib/api';
 import { useLanguage } from '@/lib/i18n/context';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import { useOwnerAuth } from '@/lib/ownerAuth';
+import { groupStockByCategory, type Category, type StockRow } from '@/lib/catalog';
+import { AddCategoryForm } from '@/components/catalog/AddCategoryForm';
+import { AddProductForm, type NewProduct } from '@/components/catalog/AddProductForm';
 
-interface StockRow {
-  productId: string;
-  nameTh: string;
-  unit: string;
-  onHand: number;
-}
 
 type Reason = 'stock_in' | 'waste' | 'adjust';
 
@@ -23,17 +20,64 @@ export default function InventoryPage() {
   const { token } = useOwnerAuth();
   const { t } = useLanguage();
   const { data: stock, mutate } = useSWR(token ? ['stock', token] : null, () => ownerFetch<StockRow[]>('/api/owner/stock', token!), { refreshInterval: 20_000 });
+  const { data: categories, mutate: mutateCategories } = useSWR(token ? ['categories', token] : null, () => ownerFetch<Category[]>('/api/owner/categories', token!));
   const [open, setOpen] = useState<string | null>(null);
+  const [adding, setAdding] = useState<'category' | 'product' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  async function save(fn: () => Promise<unknown>, ok: string) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await fn();
+      setAdding(null);
+      setNotice(ok);
+      await Promise.all([mutate(), mutateCategories()]);
+    } catch (e) {
+      setError(e instanceof ApiRequestError ? e.message : t.common.error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const addCategory = (nameTh: string) =>
+    save(() => ownerFetch('/api/owner/categories', token!, { method: 'POST', body: { nameTh } }), t.catalog.categoryAdded(nameTh));
+  const addProduct = (p: NewProduct) =>
+    save(
+      () => ownerFetch('/api/owner/products', token!, { method: 'POST', body: { nameTh: p.nameTh, unit: p.unit, prepTypes: p.prepTypes, aliases: p.aliases, categoryId: p.categoryId } }),
+      t.catalog.productAdded(p.nameTh),
+    );
+  const groups = stock ? groupStockByCategory(stock, categories ?? []) : null;
 
   return (
     <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-2">
+        <Button variant="secondary" size="lg" disabled={busy} aria-expanded={adding === 'category'} onClick={() => setAdding(adding === 'category' ? null : 'category')}>
+          {t.catalog.addCategoryButton}
+        </Button>
+        <Button size="lg" disabled={busy} aria-expanded={adding === 'product'} onClick={() => setAdding(adding === 'product' ? null : 'product')}>
+          {t.catalog.addProductButton}
+        </Button>
+      </div>
+      {error && <p className="rounded-xl bg-[var(--red-bg)] p-3 text-sm text-[var(--red)]">{error}</p>}
+      {notice && <p className="rounded-xl bg-[var(--green-bg)] p-3 text-sm text-[var(--green)]">{notice}</p>}
+      {adding === 'category' && <AddCategoryForm t={t} busy={busy} onSubmit={addCategory} onCancel={() => setAdding(null)} />}
+      {adding === 'product' && <AddProductForm t={t} busy={busy} categories={categories ?? []} onSubmit={addProduct} onCancel={() => setAdding(null)} />}
+
       <Card>
         <CardTitle>{t.inventory.title}</CardTitle>
-        {!stock ? (
+        {!groups ? (
           <div className="mt-2 h-24 animate-pulse rounded-lg bg-black/5" />
         ) : (
-          <ul className="mt-2 divide-y divide-[var(--border)]">
-            {stock.map((row) => (
+          groups.map((g) => (
+          <section key={g.id ?? 'none'} className="mt-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{g.name ?? t.catalog.noCategory}</h3>
+          {g.rows.length === 0 && <p className="py-2 text-sm text-[var(--muted)]">{t.catalog.emptyCategory}</p>}
+          <ul className="divide-y divide-[var(--border)]">
+            {g.rows.map((row) => (
               <li key={row.productId} className="py-3">
                 <button
                   className="flex w-full items-center justify-between text-left"
@@ -59,6 +103,8 @@ export default function InventoryPage() {
               </li>
             ))}
           </ul>
+          </section>
+          ))
         )}
       </Card>
     </div>

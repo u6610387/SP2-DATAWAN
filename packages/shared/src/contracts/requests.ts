@@ -3,6 +3,7 @@
  * One Zod schema per endpoint body; routes validate with these before touching the DB.
  */
 import { z } from 'zod';
+import { PREP_TYPES, UNITS } from '../db';
 import { normalizeThaiPhone } from '../phone';
 import { extractTrackingUrl } from '../tracking';
 
@@ -116,3 +117,22 @@ export const PushSubscriptionRequest = z.object({
   keys: z.object({ p256dh: z.string(), auth: z.string() }),
 });
 export type PushSubscriptionRequest = z.infer<typeof PushSubscriptionRequest>;
+
+/** Owner: new category for the สต็อก tab (names are unique among active categories). */
+export const CategoryCreateRequest = z.object({
+  nameTh: z.string().trim().min(1).max(60),
+});
+export type CategoryCreateRequest = z.infer<typeof CategoryCreateRequest>;
+
+/**
+ * Owner: new product. `aliases` are extra words customers use (the name itself is always added,
+ * so the order parser recognises the product on the very next message). Aliases < 2 chars are dropped.
+ */
+export const ProductCreateRequest = z.object({
+  nameTh: z.string().trim().min(1).max(80),
+  unit: z.enum(UNITS),
+  prepTypes: z.array(z.enum(PREP_TYPES)).min(1).max(PREP_TYPES.length).default(['any']),
+  aliases: z.array(z.string().trim().max(40)).max(20).default([]),
+  categoryId: z.string().uuid().nullable().default(null),
+});
+export type ProductCreateRequest = z.infer<typeof ProductCreateRequest>;
