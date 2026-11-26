@@ -3,6 +3,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { bahtToSatang, canFire, computeMargin, extractTrackingUrl, formatTHB, type OwnerOrderView } from '@datawan/shared';
+import { LalamoveCopyCard } from '@/components/LalamoveCopyCard';
 import { MarginPreview } from '@/components/MarginPreview';
 import { deliveryReadyView } from '@/components/RecipientCard';
 import { SlipPaymentCard } from '@/components/SlipPaymentCard';
@@ -116,15 +117,7 @@ export default function OrderDetailPage() {
       )}
 
       {/* Address + map pin first: the owner gets the Lalamove quote from this card, then types the fee. */}
-      {order.lalamoveCard && (
-        <Card>
-          <CardTitle>{t.orderDetail.lalamoveTitle}</CardTitle>
-          <pre className="mt-2 whitespace-pre-wrap rounded-lg bg-black/5 p-3 text-sm">{order.lalamoveCard.text}</pre>
-          <Button variant="secondary" size="sm" className="mt-2" onClick={() => navigator.clipboard.writeText(order.lalamoveCard!.text)}>
-            {t.common.copy}
-          </Button>
-        </Card>
-      )}
+      {order.lalamoveCard && <LalamoveCopyCard order={order} t={t} />}
       {/* Same states the worker accepts OWNER_SET_SHIPPING in (orderMachine): first entry, or a correction → new QR + timer. */}
       {(order.status === 'AWAITING_SHIPPING_FEE' || order.status === 'AWAITING_PAYMENT' || order.status === 'PAYMENT_EXPIRED') && !deliveryReadyView(order) && (
         <Card>
