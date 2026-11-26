@@ -12,6 +12,7 @@ import { Card, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ApiRequestError, liffFetch } from '@/lib/api';
 import { compressImage } from '@/lib/compressImage';
+import { checkSlipQrText, decodeQrFromFile } from '@/lib/slipQr';
 import { useLanguage } from '@/lib/i18n/context';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import { useLiffAuth } from '@/lib/liffAuth';
@@ -166,6 +167,8 @@ function OrderRoom({ orderId, auth }: { orderId: string; auth: { idToken: string
         <Card>
           <CardTitle>{t.liff.expiredTitle}</CardTitle>
           <p className="mt-1 text-sm text-[var(--muted)]">{t.liff.expiredBody}</p>
+          <p className="mt-2 text-xs text-[var(--muted)]">{t.liff.expiredUploadHint}</p>
+          <SlipUpload t={t} orderId={orderId} auth={auth} busy={busy} onUploaded={() => void mutate()} setError={setActionError} />
         </Card>
       )}
 
@@ -261,6 +264,12 @@ function SlipUpload({
     setUploading(true);
     setError(null);
     try {
+      // Zero-cost gate on the customer's device: no valid Thai bank Mini-QR → not a slip, nothing uploaded.
+      const gate = checkSlipQrText(await decodeQrFromFile(file).catch(() => null));
+      if (!gate.ok) {
+        setError(t.liff.notSlipQr);
+        return;
+      }
       const blob = await compressImage(file);
       const { uploadUrl, path } = await liffFetch<{ uploadUrl: string; path: string }>(`/api/liff/orders/${orderId}/slip-upload-url`, auth, {
         method: 'POST',
@@ -269,10 +278,10 @@ function SlipUpload({
       if (!uploadUrl.startsWith('about:blank')) {
         await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, body: blob });
       }
-      await liffFetch(`/api/liff/orders/${orderId}/slip`, auth, { method: 'POST', body: { path } });
+      await liffFetch(`/api/liff/orders/${orderId}/slip`, auth, { method: 'POST', body: { path, qrPayload: gate.payload } });
       onUploaded();
     } catch (e) {
-      setError(e instanceof ApiRequestError ? e.message : t.liff.uploadError);
+      setError(e instanceof ApiRequestError && e.code === 'NOT_A_SLIP' ? t.liff.notSlipQr : e instanceof ApiRequestError ? e.message : t.liff.uploadError);
     } finally {
       setUploading(false);
     }

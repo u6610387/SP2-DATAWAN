@@ -9,6 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/app';
+import { buildSlipQrForTest } from '../../src/services/slipQr';
 import { findPostback, LIFF_TOKEN, makeHarness, OWNER_TOKEN } from '../harness';
 
 const LIFF_TOKEN_B = 'test-liff-token-customer-b';
@@ -107,7 +108,7 @@ describe('slip path ownership (LIFF POST /orders/:id/slip)', () => {
     return s;
   }
   const submit = (app: ReturnType<typeof createApp>, orderId: string, path: string) =>
-    app.request(`/api/liff/orders/${orderId}/slip`, { method: 'POST', headers: { Authorization: `Bearer ${LIFF_TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ path }) });
+    app.request(`/api/liff/orders/${orderId}/slip`, { method: 'POST', headers: { Authorization: `Bearer ${LIFF_TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ path, qrPayload: buildSlipQrForTest('004', 'AUTHZ00000000000001') }) });
 
   it.each([
     ['another order\'s slip', (id: string) => `slips/00000000-0000-4000-8000-000000000999/${id}.jpeg`],

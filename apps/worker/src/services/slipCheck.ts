@@ -12,9 +12,13 @@ export interface SlipCheckContext {
   now: Date;
   /** GEMINI_SLIP_MODE=manual: no AI read was attempted (CLAUDE.md D1), the owner checks the image. */
   manualReview?: boolean;
+  /** Image came straight from LINE chat (no bank-QR gate on the customer's device). */
+  viaChat?: boolean;
 }
 
 /** Shown on every slip in manual mode: nothing failed, the slip simply isn't read by AI. */
+/** Chat image in manual mode: say it was not QR-checked before submission. */
+export const SLIP_CHAT_DETAIL = 'ส่งรูปทางแชท (ยังไม่ผ่านการตรวจ QR ธนาคารจากเครื่องลูกค้า): ระบบจะตรวจ QR เมื่อเปิดในแดชบอร์ด กรุณาตรวจยอดเงิน เวลา และชื่อผู้รับจากรูป';
 export const SLIP_MANUAL_REVIEW_DETAIL = 'ตรวจด้วยตนเอง: ระบบไม่ได้อ่านสลิปอัตโนมัติ กรุณาตรวจยอดเงิน เวลา และชื่อผู้รับจากรูปสลิป';
 
 export interface SlipCheckOutcome {
@@ -46,7 +50,7 @@ export function receiverMatches(printed: string, expectedName: string, promptpay
 export function checkSlip(slip: SlipReadResult | null, ctx: SlipCheckContext): SlipCheckOutcome {
   const checks: SlipCheck[] = [];
   if (!slip && ctx.manualReview) {
-    checks.push({ rule: 'READABLE', result: 'WARN', detail: SLIP_MANUAL_REVIEW_DETAIL });
+    checks.push({ rule: 'READABLE', result: 'WARN', detail: ctx.viaChat ? SLIP_CHAT_DETAIL : SLIP_MANUAL_REVIEW_DETAIL });
     return { result: 'WARN', checks };
   }
   if (!slip || !slip.is_slip) {

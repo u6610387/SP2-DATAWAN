@@ -160,6 +160,8 @@ export const en: Dictionary = {
     uploadSlip: 'Upload payment slip',
     uploading: 'Uploading...',
     uploadError: 'Upload failed — please try again',
+    notSlipQr: 'This image is not a transfer slip (no bank QR code found). Please upload a slip image with a clear QR code.',
+    expiredUploadHint: 'Already transferred? Upload the slip and the shop will check it.',
     expiredTitle: 'Payment window expired',
     expiredBody: "The shop will confirm the shipping fee again — you'll get a new QR to pay.",
     reviewTitle: 'Slip received',

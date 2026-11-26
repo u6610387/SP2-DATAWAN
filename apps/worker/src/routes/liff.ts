@@ -11,6 +11,8 @@ import type { Deps } from '../deps';
 import type { Bindings } from '../env';
 import * as actions from '../services/orderActions';
 import { setRecipient } from '../services/recipient';
+import { parseSlipQr } from '../services/slipQr';
+import { PAYABLE } from '../handlers/customer';
 import { splitPath } from '../services/storage';
 import { toCustomerOrderView } from '../services/views';
 import { apiError, checkIfMatch, conflictError, deliveryIncompleteError } from './respond';
@@ -115,6 +117,7 @@ export function createLiffRoutes(deps: Deps) {
     if (order instanceof Response) return order;
     const parsed = SlipUploadUrlRequest.safeParse(await readJson(c));
     if (!parsed.success) return apiError(c, 'VALIDATION_FAILED', parsed.error.message, 400);
+    if (!(PAYABLE as readonly string[]).includes(order.status)) return conflictError(c, 'INVALID_FROM_STATE', order);
     const key = `${order.id}/${crypto.randomUUID()}.${parsed.data.contentType.split('/')[1]}`;
     return c.json(await deps.storage.createSignedUploadUrl('slips', key));
   });
@@ -127,9 +130,13 @@ export function createLiffRoutes(deps: Deps) {
     // Only a path this order's /slip-upload-url could have issued: never another order's slip,
     // another bucket, or a traversal. Checked before Storage is touched (service role).
     if (!isOwnSlipPath(parsed.data.path, order.id)) return apiError(c, 'VALIDATION_FAILED', 'path is not an upload for this order', 400);
+    if (!(PAYABLE as readonly string[]).includes(order.status)) return conflictError(c, 'INVALID_FROM_STATE', order);
+    // The customer's browser decoded the bank Mini-QR; re-check it here (cheap: no image decoding).
+    const qr = parseSlipQr(parsed.data.qrPayload);
+    if (!qr.ok) return apiError(c, 'NOT_A_SLIP', 'image has no valid Thai bank slip QR code', 422);
     const { bucket, key } = splitPath(parsed.data.path);
     const { bytes, contentType } = await deps.storage.download(bucket, key);
-    const r = await actions.submitSlip(deps, order, parsed.data.path, bytes, contentType);
+    const r = await actions.submitSlip(deps, order, parsed.data.path, bytes, contentType, { via: 'liff', sendingBank: qr.sendingBank });
     if (!r.ok) {
       if (r.reason === 'NOT_A_SLIP') return apiError(c, 'VALIDATION_FAILED', 'image is not a payment slip', 422);
       return conflictError(c, r.reason, r.order);
