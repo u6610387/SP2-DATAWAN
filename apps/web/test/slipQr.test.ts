@@ -5,7 +5,8 @@
  */
 import QRCode from 'qrcode';
 import { describe, expect, it } from 'vitest';
-import { decodeQrFromRgba } from '@/lib/slipQr';
+import { checkSlipQrText, decodeQrFromRgba } from '@/lib/slipQr';
+import { th } from '@/lib/i18n/th';
 
 function renderQr(text: string, scale = 4, margin = 4, invert = false) {
   const { modules } = QRCode.create(text, { errorCorrectionLevel: 'M' });
@@ -40,3 +41,28 @@ describe('decodeQrFromRgba', () => {
     expect(decodeQrFromRgba(blank, size, size)).toBeNull();
   });
 });
+
+// Production A10: a chat screenshot was accepted as a slip. The LIFF gate runs on the customer's
+// device before anything is uploaded: decode → valid Thai bank slip Mini-QR (format + CRC) or reject.
+describe('LIFF slip gate (checkSlipQrText on decoded pixels)', () => {
+  const PROMPTPAY = '00020101021129370016A000000677010111011300668123456785802TH530376463041234';
+  it('accepts a real bank slip Mini-QR', () => {
+    const { data, size } = renderQr(SLIP_QR);
+    expect(checkSlipQrText(decodeQrFromRgba(data, size, size))).toEqual({ ok: true, payload: SLIP_QR });
+  });
+  it('rejects an image whose QR is a PromptPay payment QR (e.g. a chat screenshot with a QR)', () => {
+    const { data, size } = renderQr(PROMPTPAY);
+    expect(decodeQrFromRgba(data, size, size)).toBe(PROMPTPAY); // a QR is found…
+    expect(checkSlipQrText(decodeQrFromRgba(data, size, size)).ok).toBe(false); // …but it isn't a slip QR
+  });
+  it('rejects an image with no QR at all and a tampered slip QR', () => {
+    const blank = new Uint8ClampedArray(200 * 200 * 4).fill(255);
+    expect(checkSlipQrText(decodeQrFromRgba(blank, 200, 200)).ok).toBe(false);
+    expect(checkSlipQrText(SLIP_QR.slice(0, -4) + '0000').ok).toBe(false);
+    expect(checkSlipQrText(null).ok).toBe(false);
+  });
+  it('shows the exact Thai rejection message', () => {
+    expect(th.liff.notSlipQr).toBe('รูปนี้ไม่ใช่สลิปโอนเงิน (ไม่พบ QR Code ธนาคาร) กรุณาอัปโหลดรูปสลิปที่มี QR Code ชัดเจน');
+  });
+});
+

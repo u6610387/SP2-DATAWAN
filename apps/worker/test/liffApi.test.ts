@@ -1,6 +1,7 @@
 /** Customer LIFF REST API, route-level: real Hono app (createApp) + in-memory repo. */
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app';
+import { buildSlipQrForTest } from '../src/services/slipQr';
 import { splitPath } from '../src/services/storage';
 import { findPostback, LIFF_TOKEN, makeHarness } from './harness';
 
@@ -92,7 +93,7 @@ describe('LIFF REST API', () => {
     const { bucket, key } = splitPath(path);
     await h.deps.storage.upload(bucket, key, new Uint8Array(200).fill(9), 'image/jpeg');
 
-    res = await app.request(`/api/liff/orders/${orderId}/slip`, { method: 'POST', headers: auth, body: JSON.stringify({ path }) });
+    res = await app.request(`/api/liff/orders/${orderId}/slip`, { method: 'POST', headers: auth, body: JSON.stringify({ path, qrPayload: buildSlipQrForTest('004', 'LIFFAPI000000000001') }) });
     expect(res.status).toBe(200);
     expect((await jsonOf(res)).status).toBe('PAYMENT_REVIEW');
     expect(h.repo.payments[0]!.check_result).toBe('PASS');

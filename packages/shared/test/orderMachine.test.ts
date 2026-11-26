@@ -73,3 +73,14 @@ describe('order state machine — human-in-the-loop safety (CLAUDE.md §3.1)', (
     expect([...seen].sort()).toEqual([...ORDER_STATUSES].sort());
   });
 });
+
+describe('slip uploads (production A10)', () => {
+  it('only while payment is due or just expired; never during review or after', async () => {
+    const { canFire } = await import('../src/state/orderMachine');
+    expect(canFire('AWAITING_PAYMENT', 'SLIP_UPLOADED')).toBe(true);
+    expect(canFire('PAYMENT_EXPIRED', 'SLIP_UPLOADED')).toBe(true);
+    for (const s of ['PAYMENT_REVIEW', 'PAID', 'DELIVERING', 'DELIVERED', 'CANCELLED', 'PRICE_QUOTED', 'AWAITING_SHIPPING_FEE'] as const) {
+      expect(canFire(s, 'SLIP_UPLOADED'), s).toBe(false);
+    }
+  });
+});

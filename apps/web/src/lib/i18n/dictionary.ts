@@ -164,6 +164,8 @@ export interface Dictionary {
     uploadSlip: string;
     uploading: string;
     uploadError: string;
+    notSlipQr: string;
+    expiredUploadHint: string;
     expiredTitle: string;
     expiredBody: string;
     reviewTitle: string;

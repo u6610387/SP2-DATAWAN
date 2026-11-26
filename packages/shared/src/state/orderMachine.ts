@@ -77,7 +77,9 @@ export const TRANSITIONS: Readonly<Record<OrderEvent, EventSpec>> = {
   },
   SLIP_UPLOADED: {
     actor: 'customer',
-    edges: { AWAITING_PAYMENT: 'PAYMENT_REVIEW', PAYMENT_EXPIRED: 'PAYMENT_REVIEW', PAYMENT_REVIEW: 'PAYMENT_REVIEW' },
+    // Only while payment is due (or just expired: a late payer keeps their evidence). No re-uploads
+    // during review — the client-side bank QR gate catches wrong images before upload.
+    edges: { AWAITING_PAYMENT: 'PAYMENT_REVIEW', PAYMENT_EXPIRED: 'PAYMENT_REVIEW' },
   },
   PAYMENT_TIMEOUT: { actor: 'system', edges: { AWAITING_PAYMENT: 'PAYMENT_EXPIRED' } },
   OWNER_CONFIRM_PAYMENT: { actor: 'owner', edges: { PAYMENT_REVIEW: 'PAID' } },

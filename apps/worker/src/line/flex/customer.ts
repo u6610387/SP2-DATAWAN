@@ -36,6 +36,11 @@ export function recipientNeededMessage(order: OrderRow, liffId: string): Msg {
   return textMsg(`${th.recipientNeeded}\n${orderLiffUrl(liffId, order.id)}`);
 }
 
+/** Chat slip saved; button to the LIFF payment screen (its upload checks the bank QR on the device). */
+export function slipViaChatMessage(order: OrderRow, liffId: string): Msg {
+  return flex(th.slipViaChat, bubble(`ออเดอร์ ${order.code}`, [text(th.slipViaChat, { size: 'sm' })], [button(uri(th.uploadViaLiff, orderLiffUrl(liffId, order.id)), 'secondary')]));
+}
+
 export function locationReceivedMessage(order: OrderRow, liffId: string): Msg {
   return textMsg(`${th.locationReceived}\n${orderLiffUrl(liffId, order.id)}`);
 }

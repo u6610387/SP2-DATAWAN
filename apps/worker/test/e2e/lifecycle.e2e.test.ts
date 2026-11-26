@@ -99,6 +99,9 @@ afterAll(async () => {
 });
 
 let seq = 0;
+let slipSeq = 0;
+/** A valid, unique bank slip Mini-QR text, as the customer's browser would decode it. */
+const nextSlipQr = () => buildSlipQrForTest('004', `E2E${String(++slipSeq).padStart(17, '0')}`);
 async function webhook(userId: string, event: Record<string, unknown>) {
   const body = JSON.stringify({
     destination: 'Ubot',
@@ -278,7 +281,7 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     expect(path).toMatch(new RegExp(`^slips/${id}/[0-9a-f-]+\\.jpeg$`));
     const [bucket, ...rest] = path.split('/');
     await storage.upload(bucket!, rest.join('/'), new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]), 'image/jpeg');
-    await web.liffFetch(`/api/liff/orders/${id}/slip`, liffAuth, { method: 'POST', body: { path } });
+    await web.liffFetch(`/api/liff/orders/${id}/slip`, liffAuth, { method: 'POST', body: { path, qrPayload: nextSlipQr() } });
     const next = await agreedVersion(id, 'PAYMENT_REVIEW');
     expect(next).toBeGreaterThan(v); v = next;
 
@@ -323,7 +326,7 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     const { path } = await web.liffFetch<{ uploadUrl: string; path: string }>(`/api/liff/orders/${id}/slip-upload-url`, liffAuth, { method: 'POST', body: { contentType: 'image/jpeg' } });
     const [bucket, ...rest] = path.split('/');
     await storage.upload(bucket!, rest.join('/'), new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), 'image/jpeg');
-    await web.liffFetch(`/api/liff/orders/${id}/slip`, liffAuth, { method: 'POST', body: { path } });
+    await web.liffFetch(`/api/liff/orders/${id}/slip`, liffAuth, { method: 'POST', body: { path, qrPayload: nextSlipQr() } });
     own = await ownerGet(id);
     expect(own.status).toBe('PAYMENT_REVIEW');
     return { id, code, paymentId: own.latestPayment!.id };
@@ -571,6 +574,82 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     expect(line.pushes.length).toBe(pushesBefore + 1);
     expect(JSON.stringify(line.pushes.at(-1)!.messages)).toContain('https://share.lalamove.com/?TH2611260002');
     expect((await ownerGet(y.id)).trackingPush).toEqual({ sent: true, reason: null });
+  }, 60_000);
+
+  // Production A10: a chat screenshot was accepted as a WARN "slip". Gate uploads on a valid bank
+  // Mini-QR decoded on the customer's device (re-validated here — no image decoding on Workers).
+  it('slip gate: LIFF needs a valid bank Mini-QR; only AWAITING_PAYMENT/PAYMENT_EXPIRED accept slips; chat images kept + flagged', async () => {
+    // Drive a fresh order to AWAITING_PAYMENT.
+    await customerText('หมึก 2 โล');
+    if (!(await db.query(`select 1 from orders where status = 'AWAITING_CONFIRMATION'`)).rows.length) {
+      await webhook(CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'new') } });
+    }
+    const id = (await db.query<{ id: string }>(`select id from orders where status = 'AWAITING_CONFIRMATION'`)).rows[0]!.id;
+    await webhook(CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'confirm') } });
+    await webhook(CUSTOMER_LINE, { type: 'message', message: { id: `m${seq + 1}`, type: 'location', latitude: 13.72, longitude: 100.47, address: '7 ถ.ทดสอบ' } });
+    let own = await ownerGet(id);
+    await web.ownerFetch(`/api/owner/orders/${id}/price`, OWNER_TOKEN, { method: 'POST', body: { amountSatang: 100 }, ifMatch: own.version });
+    const c0 = await liffGet(id);
+    await web.liffFetch(`/api/liff/orders/${id}/accept`, liffAuth, { method: 'POST', ifMatch: c0.version });
+    own = await ownerGet(id);
+    await web.ownerFetch(`/api/owner/orders/${id}/shipping`, OWNER_TOKEN, { method: 'POST', body: { feeSatang: 0 }, ifMatch: own.version });
+    expect((await dbOrder(id)).status).toBe('AWAITING_PAYMENT');
+    const payments = async () => (await db.query<{ n: number }>('select count(*)::int as n from payments where order_id = $1', [id])).rows[0]!.n;
+    const upload = async () => {
+      const { path } = await web.liffFetch<{ uploadUrl: string; path: string }>(`/api/liff/orders/${id}/slip-upload-url`, liffAuth, { method: 'POST', body: { contentType: 'image/jpeg' } });
+      const [b, ...k] = path.split('/');
+      await storage.upload(b!, k.join('/'), new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 9, 9]), 'image/jpeg');
+      return path;
+    };
+    const submit = (path: string, qrPayload?: string) =>
+      web.liffFetch(`/api/liff/orders/${id}/slip`, liffAuth, { method: 'POST', body: qrPayload === undefined ? { path } : { path, qrPayload } });
+
+    // No QR text, a non-slip QR (e.g. a chat screenshot with a PromptPay QR), a tampered QR → refused,
+    // nothing recorded, still AWAITING_PAYMENT.
+    const p1 = await upload();
+    await expect(submit(p1)).rejects.toMatchObject({ status: 400 });
+    await expect(submit(p1, '00020101021129370016A000000677010111011300668123456785802TH530376463041234')).rejects.toMatchObject({ status: 422, code: 'NOT_A_SLIP' });
+    const good = nextSlipQr();
+    await expect(submit(p1, good.slice(0, -4) + '0000')).rejects.toMatchObject({ status: 422, code: 'NOT_A_SLIP' });
+    expect(await payments()).toBe(0);
+    expect((await dbOrder(id)).status).toBe('AWAITING_PAYMENT');
+
+    // Valid bank Mini-QR → accepted; the browser's decode is recorded (owner's device still re-reads the image).
+    await submit(p1, good);
+    expect((await dbOrder(id)).status).toBe('PAYMENT_REVIEW');
+    const pay = (await db.query<{ check_details: { source: string; client_qr: { sending_bank: string } } }>('select check_details from payments where order_id = $1', [id])).rows[0]!;
+    expect(pay.check_details.source).toBe('liff');
+    expect(pay.check_details.client_qr).toEqual({ sending_bank: '004' });
+
+    // In PAYMENT_REVIEW: no new upload URL and no new slip (the QR gate catches wrong images up front).
+    await expect(web.liffFetch(`/api/liff/orders/${id}/slip-upload-url`, liffAuth, { method: 'POST', body: { contentType: 'image/jpeg' } })).rejects.toMatchObject({ status: 409 });
+    await expect(submit(p1, nextSlipQr())).rejects.toMatchObject({ status: 409 });
+    expect(await payments()).toBe(1);
+
+    // Chat image while PAYMENT_REVIEW → not saved as another slip.
+    const chat = (msgId: string) => {
+      line.content.set(msgId, new Uint8Array(64).fill(7));
+      return webhook(CUSTOMER_LINE, { type: 'message', message: { id: msgId, type: 'image', contentProvider: { type: 'line' }, quoteToken: 'q' } });
+    };
+    await chat('img-review');
+    expect(await payments()).toBe(1);
+
+    // Owner rejects → AWAITING_PAYMENT. A chat image is still kept (CLAUDE.md §3.5) but marked "via chat,
+    // QR not checked" and the reply offers the LIFF payment screen.
+    own = await ownerGet(id);
+    await web.ownerFetch(`/api/owner/payments/${own.latestPayment!.id}/reject`, OWNER_TOKEN, { method: 'POST', body: { reason: 'e2e' }, ifMatch: own.version });
+    expect((await dbOrder(id)).status).toBe('AWAITING_PAYMENT');
+    await chat('img-chat');
+    expect(await payments()).toBe(2);
+    const chatPay = (await db.query<{ check_details: { source: string; checks: { rule: string; detail: string }[] }; check_result: string }>(
+      'select check_details, check_result from payments where order_id = $1 order by created_at desc limit 1', [id])).rows[0]!;
+    expect(chatPay.check_result).toBe('WARN');
+    expect(chatPay.check_details.source).toBe('chat');
+    expect(chatPay.check_details.checks[0]!.detail).toContain('ส่งรูปทางแชท');
+    const reply = JSON.stringify(line.replies.at(-1)!.messages);
+    expect(reply).toContain('ได้รับรูปแล้วค่ะ');
+    expect(reply).toContain(`/orders/${id}`); // LIFF payment-screen button
+    expect(reply).toContain('"type":"uri"');
   }, 60_000);
 });
 

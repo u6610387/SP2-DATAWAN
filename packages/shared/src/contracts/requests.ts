@@ -92,8 +92,13 @@ export const SlipUploadUrlRequest = z.object({
 });
 export type SlipUploadUrlRequest = z.infer<typeof SlipUploadUrlRequest>;
 
+/**
+ * LIFF slip submit. `qrPayload` is the bank Mini-QR text the customer's browser decoded from the
+ * image before uploading; the Worker re-validates it (format + CRC) — no image decoding on Workers.
+ */
 export const SlipSubmitRequest = z.object({
   path: z.string().min(1),
+  qrPayload: z.string().min(1).max(512),
 });
 export type SlipSubmitRequest = z.infer<typeof SlipSubmitRequest>;
 

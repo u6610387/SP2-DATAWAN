@@ -25,7 +25,8 @@ import type { NewOrderItem } from '../services/repo';
 import { withNames } from '../services/itemNames';
 import { bangkokHHMM } from '../util/time';
 
-const PAYABLE = ['AWAITING_PAYMENT', 'PAYMENT_EXPIRED', 'PAYMENT_REVIEW'] as const;
+/** Statuses that accept a slip (same as SLIP_UPLOADED's edges in orderMachine). */
+export const PAYABLE = ['AWAITING_PAYMENT', 'PAYMENT_EXPIRED'] as const;
 /** "ขอลิ้งค์ lalamove", "ลิงก์ส่งของ", "ถึงไหนแล้ว", "track" … (deterministic; no AI call). */
 export const TRACKING_RE = /(ลิ้?ง(ค์|ก์|ก)|link|lalamove|ลาล่?ามูฟ|ติดตาม|ถึงไหน|ส่งถึง(ยัง|หรือยัง)|ไรเดอร์|rider|track)/i;
 const ACCEPT_RE = /^(ok|โอเค|ตกลง|เอา|รับ|ได้|ได้ค่ะ|ได้ครับ)\s*(ค่ะ|ครับ|คะ|จ้า)?$/i;
@@ -273,12 +274,13 @@ export async function processSlip(deps: Deps, order: OrderRow, messageId: string
   const mime = (['image/png', 'image/webp'].includes(content.contentType) ? content.contentType : 'image/jpeg') as 'image/jpeg';
   const path = await deps.storage.upload('slips', `${order.id}/${crypto.randomUUID()}.${mime.split('/')[1]}`, content.bytes, mime);
 
-  const r = await actions.submitSlip(deps, order, path, content.bytes, mime);
+  const r = await actions.submitSlip(deps, order, path, content.bytes, mime, { via: 'chat' });
   if (!r.ok) {
     if (r.reason === 'NOT_A_SLIP') return reply(deps, replyToken, [flex.textMsg(th.notASlip)]);
     return reply(deps, replyToken, [await statusReply(deps, order)]);
   }
-  return reply(deps, replyToken, [flex.textMsg(th.slipReceived)]);
+  // Kept as evidence (CLAUDE.md §3.5); suggest the LIFF screen, whose upload checks the bank QR first.
+  return reply(deps, replyToken, [flex.slipViaChatMessage(order, deps.cfg.LIFF_ID)]);
 }
 
 // ---------------- router ----------------
