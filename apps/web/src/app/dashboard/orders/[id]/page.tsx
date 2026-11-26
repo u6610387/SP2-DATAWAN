@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { bahtToSatang, canFire, computeMargin, formatTHB, type OwnerOrderView } from '@datawan/shared';
 import { MarginPreview } from '@/components/MarginPreview';
+import { deliveryReadyView } from '@/components/RecipientCard';
 import { SlipPaymentCard } from '@/components/SlipPaymentCard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -113,11 +114,7 @@ export default function OrderDetailPage() {
         />
       )}
 
-      {/* Same states the worker accepts OWNER_SET_SHIPPING in (orderMachine): first entry, or a correction → new QR + timer. */}
-      {(order.status === 'AWAITING_SHIPPING_FEE' || order.status === 'AWAITING_PAYMENT' || order.status === 'PAYMENT_EXPIRED') && (
-        <ShippingCard key={`${order.id}-${order.version}`} t={t} busy={busy} currentFeeSatang={order.shippingFeeSatang} onSubmit={(feeSatang) => run(() => ownerFetch(`/api/owner/orders/${order.id}/shipping`, token!, { method: 'POST', body: { feeSatang }, ifMatch: order.version }))} />
-      )}
-
+      {/* Address + map pin first: the owner gets the Lalamove quote from this card, then types the fee. */}
       {order.lalamoveCard && (
         <Card>
           <CardTitle>{t.orderDetail.lalamoveTitle}</CardTitle>
@@ -127,6 +124,17 @@ export default function OrderDetailPage() {
           </Button>
         </Card>
       )}
+      {/* Same states the worker accepts OWNER_SET_SHIPPING in (orderMachine): first entry, or a correction → new QR + timer. */}
+      {(order.status === 'AWAITING_SHIPPING_FEE' || order.status === 'AWAITING_PAYMENT' || order.status === 'PAYMENT_EXPIRED') && !deliveryReadyView(order) && (
+        <Card>
+          <CardTitle>{t.orderDetail.waitingDeliveryTitle}</CardTitle>
+          <p className="mt-1 text-sm text-[var(--muted)]">{t.orderDetail.waitingDeliveryBody}</p>
+        </Card>
+      )}
+      {(order.status === 'AWAITING_SHIPPING_FEE' || order.status === 'AWAITING_PAYMENT' || order.status === 'PAYMENT_EXPIRED') && deliveryReadyView(order) && (
+        <ShippingCard key={`${order.id}-${order.version}`} t={t} busy={busy} currentFeeSatang={order.shippingFeeSatang} onSubmit={(feeSatang) => run(() => ownerFetch(`/api/owner/orders/${order.id}/shipping`, token!, { method: 'POST', body: { feeSatang }, ifMatch: order.version }))} />
+      )}
+
 
       {order.totalSatang !== null && order.status === 'AWAITING_PAYMENT' && (
         <Card>

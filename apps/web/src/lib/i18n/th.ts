@@ -89,6 +89,8 @@ export const th: Dictionary = {
     markDelivered: 'ส่งถึงแล้ว',
     deliveredTitle: 'ส่งสำเร็จ',
     deliveredSummary: (total) => `ยอดขาย ${total} · ตัดสต็อกแล้ว`,
+    waitingDeliveryTitle: 'รอลูกค้ากรอกข้อมูลจัดส่ง',
+    waitingDeliveryBody: 'ยังไม่มีหมุดที่อยู่หรือชื่อ/เบอร์ผู้รับ ระบบส่งลิงก์ให้ลูกค้ากรอกแล้ว จะใส่ค่าส่งได้เมื่อข้อมูลครบ',
     cancelOrder: 'ยกเลิกออเดอร์',
     cancelTitle: 'ยกเลิกออเดอร์นี้?',
     cancelHint: 'ยกเลิกได้ก่อนยืนยันการชำระเงินเท่านั้น ระบบจะไม่ส่งข้อความหาลูกค้า',

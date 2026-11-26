@@ -9,6 +9,11 @@ export function apiError(c: Context, code: ApiErrorCode, message: string, status
 }
 
 /** Maps services/orderActions.ts conflict reasons to the contract's error codes. */
+/** 422 when the order has no location or recipient yet (shipping-fee step). */
+export function deliveryIncompleteError(c: Context) {
+  return apiError(c, 'DELIVERY_INCOMPLETE', 'order needs a delivery location and the recipient name + phone first', 422);
+}
+
 export function conflictError(c: Context, reason: 'INVALID_FROM_STATE' | 'WRONG_ACTOR' | 'VERSION_CONFLICT', order: OrderRow) {
   if (reason === 'VERSION_CONFLICT') return apiError(c, 'VERSION_CONFLICT', 'order has changed, refetch', 409);
   return apiError(c, 'ORDER_STATE_INVALID', `order ${order.code} is not in a state that allows this action`, 409);

@@ -246,6 +246,7 @@ async function setLocation(
 
 async function acceptPrice(deps: Deps, order: OrderRow, replyToken?: string): Promise<void> {
   const r = await actions.customerAccept(deps, order);
+  if (!r.ok && r.reason === 'DELIVERY_INCOMPLETE') return reply(deps, replyToken, [flex.recipientNeededMessage(order, deps.cfg.LIFF_ID)]);
   if (!r.ok) return reply(deps, replyToken, [flex.textMsg(th.staleAction), await statusReply(deps, order)]);
   return reply(deps, replyToken, [flex.textMsg(th.accepted)]);
 }

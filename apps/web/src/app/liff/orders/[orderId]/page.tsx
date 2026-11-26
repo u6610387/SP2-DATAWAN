@@ -113,6 +113,7 @@ function OrderRoom({ orderId, auth }: { orderId: string; auth: { idToken: string
           productPriceSatang={order.productPriceSatang}
           note={order.priceNote}
           busy={busy}
+          acceptBlocked={order.delivery.needsRecipient}
           onAccept={() => run(() => liffFetch(`/api/liff/orders/${orderId}/accept`, auth, { method: 'POST', ifMatch: order.version }))}
           onCounter={(amountSatang) => run(() => liffFetch(`/api/liff/orders/${orderId}/counter`, auth, { method: 'POST', body: { amountSatang }, ifMatch: order.version }))}
         />
@@ -198,6 +199,7 @@ function PriceCard({
   note,
   busy,
   onAccept,
+  acceptBlocked,
   onCounter,
 }: {
   t: Dictionary;
@@ -205,6 +207,8 @@ function PriceCard({
   note: string | null;
   busy: boolean;
   onAccept: () => void;
+  /** Recipient name + phone still missing: accepting would move to the shipping-fee step. */
+  acceptBlocked?: boolean;
   onCounter: (amountSatang: number) => void;
 }) {
   const [countering, setCountering] = useState(false);
@@ -218,7 +222,7 @@ function PriceCard({
       {note && <p className="mt-1 text-center text-xs text-[var(--muted)]">{note}</p>}
       {!countering ? (
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <Button size="lg" disabled={busy} onClick={onAccept}>
+          <Button size="lg" disabled={busy || acceptBlocked} onClick={onAccept}>
             {t.liff.acceptBtn}
           </Button>
           <Button variant="secondary" size="lg" disabled={busy} onClick={() => setCountering(true)}>

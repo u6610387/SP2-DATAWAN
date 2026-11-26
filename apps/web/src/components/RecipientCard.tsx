@@ -13,6 +13,12 @@ import type { Dictionary } from '@/lib/i18n/dictionary';
 
 const LOCKED = new Set(['DELIVERING', 'DELIVERED', 'CANCELLED']);
 
+/** Location + recipient name + phone: the shipping-fee step can start (mirrors the worker's deliveryReady). */
+export function deliveryReadyView(order: Pick<CustomerOrderView, 'delivery'>): boolean {
+  const d = order.delivery;
+  return d.hasLocation && Boolean(d.recipientName && d.recipientPhone);
+}
+
 export function showRecipientCard(order: CustomerOrderView): boolean {
   return !LOCKED.has(order.status) && (order.delivery.hasLocation || order.delivery.recipientName !== null);
 }
@@ -66,8 +72,18 @@ export function RecipientCard({
       </label>
       <Input id="recipient-phone" type="tel" inputMode="tel" autoComplete="tel" placeholder="08x-xxx-xxxx" value={phone} onChange={(e) => setPhone(e.target.value)} aria-invalid={showPhoneError} />
       {showPhoneError && <p className="mt-1 text-xs text-[var(--red)]">{t.liff.recipientPhoneInvalid}</p>}
-      <label className="mt-3 flex items-start gap-2 text-xs text-[var(--muted)]">
-        <input type="checkbox" className="mt-0.5" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+      {/* Big tap target: the whole row toggles; 24×24 px box in the brand colour (cyan-700 light / cyan-400 dark). */}
+      <label
+        htmlFor="recipient-consent"
+        className="mt-3 flex min-h-12 cursor-pointer select-none items-center gap-3 rounded-xl border border-[var(--border)] px-3 py-3 text-sm active:bg-black/5"
+      >
+        <input
+          id="recipient-consent"
+          type="checkbox"
+          className="h-6 w-6 shrink-0 cursor-pointer accent-[var(--brand)]"
+          checked={consent}
+          onChange={(e) => setConsent(e.target.checked)}
+        />
         <span>{t.liff.recipientConsent}</span>
       </label>
       <div className="mt-3 flex gap-2">

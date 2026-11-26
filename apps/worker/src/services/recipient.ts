@@ -23,8 +23,14 @@ export function profileHasRecipient(user: Pick<UserRow, 'full_name' | 'phone'>):
   return Boolean(user.full_name?.trim() && user.phone?.trim());
 }
 
+/** Location + recipient name + phone: what the rider (and the Lalamove quote) needs. */
+export function deliveryReady(order: Pick<OrderRow, 'address_id' | 'recipient_name' | 'recipient_phone'>): boolean {
+  return order.address_id !== null && Boolean(order.recipient_name?.trim() && order.recipient_phone?.trim());
+}
+
+/** The customer must still fill the recipient (held new order, or an older order without one). */
 export function orderNeedsRecipient(order: Pick<OrderRow, 'status' | 'address_id' | 'recipient_name' | 'recipient_phone'>): boolean {
-  return order.status === 'AWAITING_LOCATION' && order.address_id !== null && !(order.recipient_name && order.recipient_phone);
+  return EDITABLE.includes(order.status) && order.address_id !== null && !deliveryReady(order);
 }
 
 /** LOCATION_SET + owner NEW_ORDER alert. Caller guarantees location + recipient are present. */

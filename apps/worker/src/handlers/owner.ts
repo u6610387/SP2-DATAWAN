@@ -70,6 +70,7 @@ async function acceptCounter(deps: Deps, order: OrderRow): Promise<LineMessage[]
   const r = await actions.ownerAcceptCounter(deps, order);
   if (!r.ok) {
     if (r.reason === 'NO_CANDIDATE') return [flex.ownerText(th.owner.noCandidate)];
+    if (r.reason === 'DELIVERY_INCOMPLETE') return [flex.ownerText(th.owner.deliveryIncomplete(order.code))];
     return [flex.ownerText(conflictOr(r))];
   }
   return [flex.priceEcho(r.order, 'รับราคา', r.amountSatang, r.items, r.margin, `พิมพ์ "${order.code} ship <ค่าส่ง>" ต่อได้เลย`)];
@@ -83,6 +84,7 @@ async function holdPrice(deps: Deps, order: OrderRow): Promise<LineMessage[]> {
 
 async function setShipping(deps: Deps, order: OrderRow, feeSatang: number): Promise<LineMessage[]> {
   const r = await actions.ownerSetShipping(deps, order, feeSatang);
+  if (!r.ok && r.reason === 'DELIVERY_INCOMPLETE') return [flex.ownerText(th.owner.deliveryIncomplete(order.code))];
   if (!r.ok) return [flex.ownerText(conflictOr(r))];
   return flex.shippingEcho(r.order, r.lalamoveCard, pushNote(r.push));
 }

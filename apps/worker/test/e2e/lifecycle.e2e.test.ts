@@ -453,4 +453,66 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     expect(cust2.delivery).toMatchObject({ recipientName: 'คุณใหม่ ทดสอบ', recipientPhone: '0812345678', needsRecipient: false });
     expect(JSON.stringify(line.replies.at(-1)!.messages)).not.toContain('ขอชื่อผู้รับและเบอร์โทร');
   }, 60_000);
+
+  // Phone test A8: at "ร้านกำลังเช็กค่าส่ง" the owner had no address/pin to quote Lalamove, and an
+  // order without location + recipient must never reach (or leave) the shipping-fee step.
+  it('shipping step: needs location + recipient to enter/leave it; Lalamove card shown before the fee is set', async () => {
+    await customerText('หอยแครง 3 โล');
+    if (!(await db.query(`select 1 from orders where status = 'AWAITING_CONFIRMATION'`)).rows.length) {
+      await webhook(CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'new') } });
+    }
+    const id = (await db.query<{ id: string }>(`select id from orders where status = 'AWAITING_CONFIRMATION'`)).rows[0]!.id;
+    await webhook(CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'confirm') } });
+    await webhook(CUSTOMER_LINE, { type: 'message', message: { id: `m${seq + 1}`, type: 'location', latitude: 13.7234, longitude: 100.4761, address: '1 ตลาดสดธนบุรี' } });
+    let own = await ownerGet(id);
+    await web.ownerFetch(`/api/owner/orders/${id}/price`, OWNER_TOKEN, { method: 'POST', body: { amountSatang: 30000 }, ifMatch: own.version });
+    expect((await dbOrder(id)).status).toBe('PRICE_QUOTED');
+
+    // Simulate an order from before the recipient step (no recipient on the order).
+    await db.query('update orders set recipient_name = null, recipient_phone = null where id = $1', [id]);
+    let cust = await liffGet(id);
+    expect(cust.delivery).toMatchObject({ hasLocation: true, needsRecipient: true });
+
+    // Customer accept is refused (LIFF and chat), order stays put.
+    await expect(web.liffFetch(`/api/liff/orders/${id}/accept`, liffAuth, { method: 'POST', ifMatch: cust.version })).rejects.toMatchObject({ status: 422, code: 'DELIVERY_INCOMPLETE' });
+    await customerText('ตกลง');
+    expect(JSON.stringify(line.replies.at(-1)!.messages)).toContain('ขอชื่อผู้รับและเบอร์โทร');
+    expect((await dbOrder(id)).status).toBe('PRICE_QUOTED');
+
+    // Owner accepting a counter-offer is refused too.
+    cust = await liffGet(id);
+    await web.liffFetch(`/api/liff/orders/${id}/counter`, liffAuth, { method: 'POST', body: { amountSatang: 28000 }, ifMatch: cust.version });
+    own = await ownerGet(id);
+    await expect(web.ownerFetch(`/api/owner/orders/${id}/negotiation`, OWNER_TOKEN, { method: 'POST', body: { action: 'accept' }, ifMatch: own.version })).rejects.toMatchObject({ status: 422, code: 'DELIVERY_INCOMPLETE' });
+    expect((await dbOrder(id)).status).toBe('NEGOTIATING');
+
+    // Customer fills the recipient → owner can accept → AWAITING_SHIPPING_FEE.
+    cust = await liffGet(id);
+    await web.liffFetch(`/api/liff/orders/${id}/recipient`, liffAuth, { method: 'POST', body: { recipientName: CUSTOMER_NAME, recipientPhone: CUSTOMER_PHONE, pdpaConsent: true }, ifMatch: cust.version });
+    expect((await dbOrder(id)).status).toBe('NEGOTIATING'); // updating the recipient never moves the order
+    own = await ownerGet(id);
+    own = await web.ownerFetch<OwnerOrderView>(`/api/owner/orders/${id}/negotiation`, OWNER_TOKEN, { method: 'POST', body: { action: 'accept' }, ifMatch: own.version });
+    expect(own.status).toBe('AWAITING_SHIPPING_FEE');
+
+    // Before any fee: the Lalamove card is there with recipient, phone, address and map pin.
+    expect(own.shippingFeeSatang).toBeNull();
+    expect(own.lalamoveCard).not.toBeNull();
+    const card = own.lalamoveCard!.text.split('\n');
+    expect(card).toEqual(expect.arrayContaining([`ผู้รับ: ${CUSTOMER_NAME}`, `โทร: ${CUSTOMER_PHONE}`, 'ที่อยู่: 1 ตลาดสดธนบุรี']));
+    expect(card.some((l) => l.startsWith('แผนที่: '))).toBe(true);
+    expect(own.lalamoveCard!.mapUrl).toContain('13.7234');
+
+    // Owner can't set the fee if the recipient goes missing; nothing changes.
+    await db.query('update orders set recipient_phone = null where id = $1', [id]);
+    own = await ownerGet(id);
+    await expect(web.ownerFetch(`/api/owner/orders/${id}/shipping`, OWNER_TOKEN, { method: 'POST', body: { feeSatang: 9000 }, ifMatch: own.version })).rejects.toMatchObject({ status: 422, code: 'DELIVERY_INCOMPLETE' });
+    expect(await dbOrder(id)).toMatchObject({ status: 'AWAITING_SHIPPING_FEE' });
+    await db.query('update orders set recipient_phone = $2 where id = $1', [id, CUSTOMER_PHONE]);
+    own = await ownerGet(id);
+    own = await web.ownerFetch<OwnerOrderView>(`/api/owner/orders/${id}/shipping`, OWNER_TOKEN, { method: 'POST', body: { feeSatang: 9000 }, ifMatch: own.version });
+    expect(own.status).toBe('AWAITING_PAYMENT');
+    expect(own.lalamoveCard).not.toBeNull();
+    await web.ownerFetch(`/api/owner/orders/${id}/cancel`, OWNER_TOKEN, { method: 'POST', body: { reason: 'e2e' }, ifMatch: own.version });
+  }, 60_000);
 });
+

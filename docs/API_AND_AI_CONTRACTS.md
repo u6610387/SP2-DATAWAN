@@ -165,6 +165,7 @@ export interface BillFlag { lineIndex: number | null; kind: 'LINE_MATH' | 'TOTAL
 ---
 
 > **Recipient rule (2026-11-25):** a LINE location only completes `LOCATION_SET` when the customer's profile has `full_name` + `phone` (copied to `orders.recipient_*`). Otherwise the address is saved, the order stays in `AWAITING_LOCATION` (`CustomerOrderView.delivery.needsRecipient = true`), the bot replies with the LIFF link, and the order is submitted by `POST /api/liff/orders/:id/recipient`. The LINE display name is never used as the recipient. `delivery` also carries `recipientPhone` and `hasLocation`.
+> **Shipping-fee step (2026-11-26):** entering it (`CUSTOMER_ACCEPT`, `OWNER_ACCEPT`) and setting the fee (`OWNER_SET_SHIPPING`) require a location **and** the recipient name + phone (`deliveryReady`). Otherwise the call fails with **422 `DELIVERY_INCOMPLETE`**: the LIFF shows the recipient form, chat gets a reply with the LIFF link, and the owner's LINE command gets a "waiting for the customer" reply. `delivery.needsRecipient` is true for any open order (until `DELIVERING`) that has a location but no recipient. `OwnerOrderView.lalamoveCard` is present from `AWAITING_SHIPPING_FEE` (before any fee) through `DELIVERING` whenever an address exists, so the owner can quote Lalamove first.
 
 ## 3. Supabase Realtime Channels
 

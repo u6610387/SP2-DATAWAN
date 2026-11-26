@@ -105,6 +105,7 @@ export type ApiErrorCode =
   | 'AI_UNAVAILABLE'
   | 'AI_OUTPUT_INVALID'
   | 'SLIP_REFERENCE_REUSED'
+  | 'DELIVERY_INCOMPLETE'
   | 'INTERNAL';
 
 export interface ApiError {

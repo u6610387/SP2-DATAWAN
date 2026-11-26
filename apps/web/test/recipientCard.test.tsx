@@ -2,7 +2,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { CustomerOrderView } from '@datawan/shared';
-import { RecipientCard, showRecipientCard } from '@/components/RecipientCard';
+import { deliveryReadyView, RecipientCard, showRecipientCard } from '@/components/RecipientCard';
 import { th } from '@/lib/i18n/th';
 
 const order = (status: CustomerOrderView['status'], d: Partial<CustomerOrderView['delivery']>) =>
@@ -32,4 +32,26 @@ describe('RecipientCard', () => {
     expect(showRecipientCard(order('PAID', { recipientName: 'คุณดา', recipientPhone: '0812345678' }))).toBe(true);
     expect(showRecipientCard(order('DELIVERING', { recipientName: 'คุณดา', recipientPhone: '0812345678' }))).toBe(false);
   });
+
+  it('PDPA consent: 24×24 px brand-coloured checkbox with a whole-row tap target (≥48 px tall)', () => {
+    const html = render(order('AWAITING_LOCATION', { needsRecipient: true }));
+    const box = /<input[^>]*id="recipient-consent"[^>]*>/.exec(html)![0];
+    expect(box).toContain('type="checkbox"');
+    expect(box).toMatch(/\bh-6\b/);
+    expect(box).toMatch(/\bw-6\b/);
+    expect(box).toContain('accent-[var(--brand)]');
+    const label = /<label[^>]*for="recipient-consent"[^>]*>/.exec(html)![0];
+    expect(label).toMatch(/\bmin-h-12\b/);
+    expect(label).toContain('cursor-pointer');
+    // the consent text is inside the label, so tapping the text toggles the box
+    expect(html).toMatch(new RegExp(`<label[^>]*for="recipient-consent"[^>]*>[\\s\\S]*${th.liff.recipientConsent.slice(0, 12)}[\\s\\S]*</label>`));
+  });
+
+  it('deliveryReadyView: shipping fee only once location + name + phone exist', () => {
+    expect(deliveryReadyView(order('AWAITING_SHIPPING_FEE', { recipientName: 'คุณดา', recipientPhone: '0812345678' }))).toBe(true);
+    expect(deliveryReadyView(order('AWAITING_SHIPPING_FEE', { recipientName: 'คุณดา', recipientPhone: null }))).toBe(false);
+    expect(deliveryReadyView(order('AWAITING_SHIPPING_FEE', { recipientName: null, recipientPhone: '0812345678' }))).toBe(false);
+    expect(deliveryReadyView(order('AWAITING_SHIPPING_FEE', { hasLocation: false, recipientName: 'คุณดา', recipientPhone: '0812345678' }))).toBe(false);
+  });
 });
+
