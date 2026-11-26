@@ -131,6 +131,30 @@ export interface Dictionary {
     notePlaceholder: string;
     save: string;
   };
+  catalog: {
+    addCategoryButton: string;
+    addProductButton: string;
+    addCategory: string;
+    addProduct: string;
+    categoryName: string;
+    categoryPlaceholder: string;
+    productName: string;
+    productPlaceholder: string;
+    unit: string;
+    units: Record<'kg' | 'piece' | 'box' | 'tray' | 'set', string>;
+    category: string;
+    noCategory: string;
+    emptyCategory: string;
+    prepTypes: string;
+    preps: Record<'live' | 'chilled' | 'frozen' | 'cooked' | 'any', string>;
+    aliases: string;
+    aliasesPlaceholder: string;
+    aliasesHint: string;
+    save: string;
+    cancel: string;
+    categoryAdded: (name: string) => string;
+    productAdded: (name: string) => string;
+  };
   liff: {
     orderLabel: (code: string) => string;
     loggingIn: string;

@@ -109,6 +109,7 @@ export type ApiErrorCode =
   | 'SLIP_REFERENCE_REUSED'
   | 'DELIVERY_INCOMPLETE'
   | 'NOT_A_SLIP'
+  | 'DUPLICATE'
   | 'INTERNAL';
 
 export interface ApiError {

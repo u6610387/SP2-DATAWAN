@@ -14,6 +14,7 @@ export class MemoryRepo implements Repo {
   orders: OrderRow[] = [];
   items: import('@datawan/shared').OrderItemRow[] = [];
   addresses: import('@datawan/shared').AddressRow[] = [];
+  categories: import('@datawan/shared').CategoryRow[] = [];
   negotiations: import('@datawan/shared').NegotiationRow[] = [];
   payments: import('@datawan/shared').PaymentRow[] = [];
   stockLogs: import('@datawan/shared').StockLogRow[] = [];
@@ -73,6 +74,29 @@ export class MemoryRepo implements Repo {
     if (u) u.is_active = false;
   }
 
+  async listActiveCategories() {
+    return this.categories.filter((c) => c.is_active).sort((a, b) => a.sort - b.sort || a.name_th.localeCompare(b.name_th)).map((c) => ({ ...c }));
+  }
+  async getCategory(id: string) {
+    const c = this.categories.find((x) => x.id === id);
+    return c ? { ...c } : null;
+  }
+  async insertCategory(c: { name_th: string; sort?: number }) {
+    // DB guard (0006 categories_name_active_uidx)
+    if (this.categories.some((x) => x.is_active && x.name_th.trim().toLowerCase() === c.name_th.trim().toLowerCase())) throw new Error('duplicate key value violates unique constraint "categories_name_active_uidx"');
+    const t = this.ts();
+    const row = { id: this.id(), name_th: c.name_th, sort: c.sort ?? 0, is_active: true, created_at: t, updated_at: t };
+    this.categories.push(row);
+    return { ...row };
+  }
+  async insertProduct(p: { name_th: string; aliases: string[]; unit: ProductRow['unit']; prep_types: ProductRow['prep_types']; category_id: string | null }) {
+    // DB guard (0006 products_name_active_uidx)
+    if (this.products.some((x) => x.is_active && x.name_th.trim().toLowerCase() === p.name_th.trim().toLowerCase())) throw new Error('duplicate key value violates unique constraint "products_name_active_uidx"');
+    const t = this.ts();
+    const row: ProductRow = { id: this.id(), ...p, is_active: true, created_at: t, updated_at: t };
+    this.products.push(row);
+    return { ...row };
+  }
   async listActiveProducts() {
     return this.products.filter((p) => p.is_active).map((p) => ({ ...p }));
   }
@@ -258,6 +282,8 @@ export class MemoryRepo implements Repo {
       name_th: p.name_th,
       unit: p.unit,
       on_hand: this.stockLogs.filter((s) => s.product_id === p.id).reduce((a, s) => a + s.qty_delta, 0),
+      category_id: p.category_id,
+      category_name: this.categories.find((c) => c.id === p.category_id)?.name_th ?? null,
     }));
   }
 
@@ -309,9 +335,9 @@ export class MemoryRepo implements Repo {
   }
 
   // ---- test helpers ----
-  seedProducts(rows: Omit<ProductRow, 'created_at' | 'updated_at' | 'is_active'>[]): void {
+  seedProducts(rows: (Omit<ProductRow, 'created_at' | 'updated_at' | 'is_active' | 'category_id'> & { category_id?: string | null })[]): void {
     const t = this.ts();
-    for (const r of rows) this.products.push({ ...r, is_active: true, created_at: t, updated_at: t });
+    for (const r of rows) this.products.push({ category_id: null, ...r, is_active: true, created_at: t, updated_at: t });
   }
   dump(): Row {
     return { orders: this.orders, items: this.items, events: this.events };

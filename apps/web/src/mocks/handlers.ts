@@ -1,7 +1,7 @@
 /** Mock Worker API — path/method matching over the fixtures in ./data (NEXT_PUBLIC_USE_MOCKS=true). */
 import { computeMargin, type CustomerOrderView, type NegotiationView, type OwnerOrderView } from '@datawan/shared';
 import { ApiRequestError, type RequestOptions } from '../lib/api';
-import { mockOrders, mockQuota, mockStock, mockSummary } from './data';
+import { mockCategories, mockOrders, mockQuota, mockStock, mockSummary } from './data';
 
 function findOrder(id: string): OwnerOrderView {
   const o = mockOrders.find((x) => x.id === id);
@@ -85,6 +85,18 @@ export async function mockFetch<T>(path: string, opts: RequestOptions): Promise<
   if (path === '/api/owner/summary/today') return { ...mockSummary, openByStatus: countByStatus() } as T;
   if (path === '/api/owner/quota') return mockQuota as T;
   if (path === '/api/owner/orders' && method === 'GET') return mockOrders as unknown as T;
+  if (path === '/api/owner/categories' && method === 'GET') return mockCategories as unknown as T;
+  if (path === '/api/owner/categories' && method === 'POST') {
+    const c = { id: `mock-cat-${Date.now()}`, nameTh: String(body?.nameTh ?? ''), sort: (mockCategories.length + 1) * 10 };
+    mockCategories.push(c);
+    return c as unknown as T;
+  }
+  if (path === '/api/owner/products' && method === 'POST') {
+    const cat = mockCategories.find((c) => c.id === body?.categoryId) ?? null;
+    const row = { productId: `mock-p-${Date.now()}`, nameTh: String(body?.nameTh ?? ''), unit: String(body?.unit ?? 'kg'), onHand: 0, categoryId: cat?.id ?? null, categoryName: cat?.nameTh ?? null };
+    mockStock.push(row as (typeof mockStock)[number]);
+    return row as unknown as T;
+  }
   if (path === '/api/owner/stock' && method === 'GET') return mockStock as unknown as T;
   if (path === '/api/owner/stock' && method === 'POST') {
     const row = mockStock.find((s) => s.productId === body?.productId);

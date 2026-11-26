@@ -65,6 +65,12 @@ export interface Repo {
   updateUserContact(userId: string, patch: { full_name: string; phone: string; pdpa_consent_at?: string }): Promise<void>;
 
   listActiveProducts(): Promise<ProductRow[]>;
+  listActiveCategories(): Promise<import('@datawan/shared').CategoryRow[]>;
+  getCategory(id: string): Promise<import('@datawan/shared').CategoryRow | null>;
+  /** Throws on a duplicate active name (unique index categories_name_active_uidx). */
+  insertCategory(c: { name_th: string; sort?: number }): Promise<import('@datawan/shared').CategoryRow>;
+  /** Throws on a duplicate active name (unique index products_name_active_uidx). */
+  insertProduct(p: { name_th: string; aliases: string[]; unit: ProductRow['unit']; prep_types: ProductRow['prep_types']; category_id: string | null }): Promise<ProductRow>;
 
   createOrder(order: NewOrder, items: NewOrderItem[]): Promise<OrderRow>;
   getOrder(id: string): Promise<OrderRow | null>;
