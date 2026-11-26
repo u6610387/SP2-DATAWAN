@@ -62,6 +62,12 @@ async function buildOwnerView(deps: Deps, order: OrderRow): Promise<OwnerOrderVi
   const address = order.address_id ? await deps.repo.getAddress(order.address_id) : null;
   const slipImageUrl = payment?.slip_path ? await (({ bucket, key }) => deps.storage.getSignedUrl(bucket, key, 600))(splitPath(payment.slip_path)) : null;
   const suggestion = await suggestPrice(deps, order, items);
+  const trackingEv = order.tracking_url
+    ? (await deps.repo.listPushEvents(order.id)).find((e) => (e.payload as { why?: string } | null)?.why === 'TRACKING_LINK')
+    : undefined;
+  const trackingPush = trackingEv
+    ? { sent: trackingEv.event === 'PUSH_SENT', reason: trackingEv.event === 'PUSH_SENT' ? null : ((trackingEv.payload as { reason?: string }).reason ?? null) }
+    : null;
   return toOwnerOrderView({
     order,
     items,
@@ -77,6 +83,7 @@ async function buildOwnerView(deps: Deps, order: OrderRow): Promise<OwnerOrderVi
     slipImageUrl,
     needsOwnerReview: order.needs_owner_review,
     pushCount: order.push_count,
+    trackingPush,
   });
 }
 

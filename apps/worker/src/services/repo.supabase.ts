@@ -213,6 +213,12 @@ export class SupabaseRepo implements Repo {
   async insertEvent(e: import('./repo').NewOrderEvent) {
     return must(await this.db.from('order_events').insert(e).select('*').single(), 'insertEvent');
   }
+  async listPushEvents(orderId: string) {
+    return must(
+      await this.db.from('order_events').select('*').eq('order_id', orderId).in('event', ['PUSH_SENT', 'PUSH_DEFERRED']).order('created_at', { ascending: false }).limit(20),
+      'listPushEvents',
+    );
+  }
   async getEvent(id: string) {
     return must(await this.db.from('order_events').select('*').eq('id', id).maybeSingle(), 'getEvent');
   }

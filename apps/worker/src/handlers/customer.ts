@@ -26,6 +26,8 @@ import { withNames } from '../services/itemNames';
 import { bangkokHHMM } from '../util/time';
 
 const PAYABLE = ['AWAITING_PAYMENT', 'PAYMENT_EXPIRED', 'PAYMENT_REVIEW'] as const;
+/** "ขอลิ้งค์ lalamove", "ลิงก์ส่งของ", "ถึงไหนแล้ว", "track" … (deterministic; no AI call). */
+export const TRACKING_RE = /(ลิ้?ง(ค์|ก์|ก)|link|lalamove|ลาล่?ามูฟ|ติดตาม|ถึงไหน|ส่งถึง(ยัง|หรือยัง)|ไรเดอร์|rider|track)/i;
 const ACCEPT_RE = /^(ok|โอเค|ตกลง|เอา|รับ|ได้|ได้ค่ะ|ได้ครับ)\s*(ค่ะ|ครับ|คะ|จ้า)?$/i;
 const COUNTER_RE = /^\s*(?:ขอ\s*)?(\d{1,3}(?:,\d{3})+|\d{2,6})\s*(?:บาท)?\s*(?:ได้ไหม|ได้มั้ย|ได้ไหมคะ|ได้ไหมครับ|ได้มั้ยคะ|นะคะ|นะครับ)?\s*$/;
 
@@ -79,6 +81,12 @@ function asParse(v: unknown): ResolvedOrderParse | null {
 function isRecentlyDelivered(deps: Deps, order: OrderRow): boolean {
   if (!order.delivered_at) return false;
   return deps.now().getTime() - new Date(order.delivered_at).getTime() <= deps.cfg.RECENT_ORDER_STATUS_HOURS * 3_600_000;
+}
+
+/** Text with the clickable link (or "not yet") + the status card with the tracking button. */
+async function trackingReply(deps: Deps, order: OrderRow): Promise<LineMessage[]> {
+  const head = order.tracking_url ? flex.textMsg(th.trackingLink(order.code, order.tracking_url)) : flex.textMsg(th.trackingNotYet(order.code));
+  return [head, await statusReply(deps, order)];
 }
 
 async function statusReply(deps: Deps, order: OrderRow): Promise<LineMessage> {
@@ -313,6 +321,13 @@ export async function handleCustomerEvent(deps: Deps, ev: webhook.Event, lineUse
   }
 
   const text = msg.text.trim();
+  // Delivery / tracking question: answer for the order that's actually paid or on the way (not
+  // necessarily the active one — the customer may already have a newer order open).
+  if (TRACKING_RE.test(text)) {
+    const shipping = open.filter((o) => o.status === 'DELIVERING' || o.status === 'PAID');
+    const target = shipping.find((o) => o.tracking_url) ?? shipping[0];
+    if (target) return reply(deps, replyToken, await trackingReply(deps, target));
+  }
   if (!active) return newOrderFromText(deps, user, text, replyToken);
 
   switch (active.status) {

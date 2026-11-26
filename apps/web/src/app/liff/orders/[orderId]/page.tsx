@@ -6,6 +6,7 @@ import { bahtToSatang, formatTHB, type CustomerOrderView } from '@datawan/shared
 import { Countdown } from '@/components/Countdown';
 import { PromptPayQR } from '@/components/PromptPayQR';
 import { RecipientCard, showRecipientCard } from '@/components/RecipientCard';
+import { TrackingButton } from '@/components/TrackingButton';
 import { Button } from '@/components/ui/button';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -93,6 +94,8 @@ function OrderRoom({ orderId, auth }: { orderId: string; auth: { idToken: string
 
       {actionError && <p className="rounded-xl bg-[var(--red-bg)] p-3 text-sm text-[var(--red)]">{actionError}</p>}
 
+      {order.trackingUrl && <TrackingButton url={order.trackingUrl} t={t} />}
+
       {showRecipientCard(order) && (
         <RecipientCard
           key={`${order.id}-${order.delivery.recipientName ?? ''}-${order.delivery.recipientPhone ?? ''}`}
@@ -176,11 +179,6 @@ function OrderRoom({ orderId, auth }: { orderId: string; auth: { idToken: string
       {(order.status === 'PAID' || order.status === 'DELIVERING') && (
         <Card>
           <CardTitle>{order.status === 'DELIVERING' ? t.liff.deliveringTitle : t.liff.paidTitle}</CardTitle>
-          {order.trackingUrl && (
-            <a href={order.trackingUrl} target="_blank" rel="noreferrer" className="mt-1 block text-sm text-[var(--brand)] underline">
-              {t.liff.trackLink}
-            </a>
-          )}
         </Card>
       )}
 

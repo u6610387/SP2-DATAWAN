@@ -4,6 +4,7 @@
  */
 import { z } from 'zod';
 import { normalizeThaiPhone } from '../phone';
+import { extractTrackingUrl } from '../tracking';
 
 export const SetPriceRequest = z.object({
   amountSatang: z.number().int().positive(),
@@ -38,8 +39,16 @@ export const RejectSlipRequest = z.object({
 });
 export type RejectSlipRequest = z.infer<typeof RejectSlipRequest>;
 
+/** Owner pastes the courier link (or the app's share text containing it); stored as a clean https URL. */
 export const DispatchRequest = z.object({
-  trackingUrl: z.string().url(),
+  trackingUrl: z.string().max(2000).transform((v, ctx) => {
+    const url = extractTrackingUrl(v);
+    if (!url) {
+      ctx.addIssue({ code: 'custom', message: 'trackingUrl must contain an https link (e.g. https://share.lalamove.com/…)' });
+      return z.NEVER;
+    }
+    return url;
+  }),
 });
 export type DispatchRequest = z.infer<typeof DispatchRequest>;
 

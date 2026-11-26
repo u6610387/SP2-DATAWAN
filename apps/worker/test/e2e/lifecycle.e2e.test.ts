@@ -514,5 +514,63 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     expect(own.lalamoveCard).not.toBeNull();
     await web.ownerFetch(`/api/owner/orders/${id}/cancel`, OWNER_TOKEN, { method: 'POST', body: { reason: 'e2e' }, ifMatch: own.version });
   }, 60_000);
+
+  // Phone test A7: the tracking link never reached the customer. The save never happened (A7 still
+  // PAID, no tracking_url) — pasted share text / a link without https was rejected on both owner
+  // paths — and a chat "ขอลิ้งค์ lalamove" answered for the newer active order instead.
+  it('Lalamove tracking: share text accepted on both owner paths → DELIVERING; push outcome shown; chat + LIFF give the link', async () => {
+    const paid = async (text: string) => {
+      const o = await orderInPaymentReview(text);
+      const v = (await ownerGet(o.id)).version;
+      await web.ownerFetch(`/api/owner/payments/${o.paymentId}/confirm`, OWNER_TOKEN, { method: 'POST', body: { overrideReason: 'checked image' }, ifMatch: v });
+      expect((await dbOrder(o.id)).status).toBe('PAID');
+      return o;
+    };
+    const x = await paid('หอยแครง 2 โล');
+    // A newer open order becomes the active one (like A8 next to A7).
+    await customerText('กั้ง 1 โล');
+    if (!(await db.query(`select 1 from orders where status = 'AWAITING_CONFIRMATION'`)).rows.length) {
+      await webhook(CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'new') } });
+    }
+
+    // Before dispatch: the chat question answers for the PAID order with "no link yet".
+    await customerText('ขอลิ้งค์ lalamove');
+    expect(JSON.stringify(line.replies.at(-1)!.messages)).toContain(`ออเดอร์ ${x.code} ชำระแล้วค่ะ`);
+
+    // Dashboard: owner pastes the app's share text (label + link). Push budget for this order is used.
+    await db.query('update orders set push_count = 1, customer_last_seen_at = null where id = $1', [x.id]);
+    let own = await ownerGet(x.id);
+    const share = 'ติดตามสถานะการจัดส่งได้ที่: https://share.lalamove.com/?TH2611260001&lang=th_TH&sign=e2e';
+    own = await web.ownerFetch<OwnerOrderView>(`/api/owner/orders/${x.id}/dispatch`, OWNER_TOKEN, { method: 'POST', body: { trackingUrl: share }, ifMatch: own.version });
+    const url = 'https://share.lalamove.com/?TH2611260001&lang=th_TH&sign=e2e';
+    expect(own.status).toBe('DELIVERING');
+    expect(own.trackingUrl).toBe(url);
+    expect(own.trackingPush).toEqual({ sent: false, reason: 'ORDER_CAP' }); // owner is told the customer wasn't pushed
+    const row = (await db.query<{ status: string; tracking_url: string; dispatched: boolean }>('select status, tracking_url, dispatched_at is not null as dispatched from orders where id = $1', [x.id])).rows[0]!;
+    expect(row).toEqual({ status: 'DELIVERING', tracking_url: url, dispatched: true });
+
+    // Customer asks in chat (several phrasings) → link text + status card with a tracking URI button,
+    // for the DELIVERING order even though a newer order is the active one.
+    for (const q of ['ขอลิ้งค์ lalamove', 'ลิงก์ส่งของ', 'ถึงไหนแล้วคะ']) {
+      await customerText(q);
+      const msgs = line.replies.at(-1)!.messages;
+      const json = JSON.stringify(msgs);
+      expect(msgs[0]).toEqual({ type: 'text', text: `🚚 ลิงก์ติดตามการจัดส่ง (Lalamove) ออเดอร์ ${x.code}\n${url}` });
+      expect(json).toContain(`{"type":"uri","label":"ติดตามการจัดส่ง","uri":"${url}"}`);
+    }
+    // LIFF: the order view carries the link.
+    expect((await liffGet(x.id)).trackingUrl).toBe(url);
+
+    // LINE owner command: "<code> <share text with a link without https>" on a fresh order with push budget → pushed.
+    const y = await paid('ปลากะพง 1 โล');
+    await db.query('update orders set push_count = 0, customer_last_seen_at = null where id = $1', [y.id]);
+    const pushesBefore = line.pushes.length;
+    await webhook(OWNER_LINE, { type: 'message', message: { id: `m${seq + 1}`, type: 'text', quoteToken: 'q', text: `${y.code} ติดตามได้ที่ share.lalamove.com/?TH2611260002` } });
+    const yRow = (await db.query<{ status: string; tracking_url: string }>('select status, tracking_url from orders where id = $1', [y.id])).rows[0]!;
+    expect(yRow).toEqual({ status: 'DELIVERING', tracking_url: 'https://share.lalamove.com/?TH2611260002' });
+    expect(line.pushes.length).toBe(pushesBefore + 1);
+    expect(JSON.stringify(line.pushes.at(-1)!.messages)).toContain('https://share.lalamove.com/?TH2611260002');
+    expect((await ownerGet(y.id)).trackingPush).toEqual({ sent: true, reason: null });
+  }, 60_000);
 });
 
