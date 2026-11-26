@@ -83,6 +83,8 @@ export interface OwnerOrderView extends Omit<CustomerOrderView, 'realtime'> {
   lalamoveCard: { text: string; mapUrl: string | null } | null;
   needsOwnerReview: boolean;
   pushCount: number;
+  /** Outcome of the tracking-link LINE push after dispatch (null until dispatched). */
+  trackingPush: { sent: boolean; reason: string | null } | null;
 }
 
 export interface QuotaStatus {

@@ -117,6 +117,7 @@ export interface OwnerViewArgs extends CustomerViewArgs {
   slipImageUrl: string | null;
   needsOwnerReview: boolean;
   pushCount: number;
+  trackingPush: { sent: boolean; reason: string | null } | null;
 }
 
 export function toOwnerOrderView(args: OwnerViewArgs): OwnerOrderView {
@@ -145,5 +146,6 @@ export function toOwnerOrderView(args: OwnerViewArgs): OwnerOrderView {
       : null,
     needsOwnerReview: args.needsOwnerReview,
     pushCount: args.pushCount,
+    trackingPush: args.trackingPush,
   };
 }

@@ -97,6 +97,11 @@ export interface Dictionary {
     markDelivered: string;
     deliveredTitle: string;
     deliveredSummary: (total: string) => string;
+    trackingPushSent: string;
+    trackingPushDeferred: (why: string) => string;
+    trackingPushReasons: Record<'PRESENT' | 'ORDER_CAP' | 'QUOTA_SAVER' | 'WARNING_P2' | 'DAILY_BUDGET' | 'INACTIVE_USER', string>;
+    trackingExtracted: (url: string) => string;
+    trackingNoLink: string;
     waitingDeliveryTitle: string;
     waitingDeliveryBody: string;
     cancelOrder: string;
@@ -131,6 +136,8 @@ export interface Dictionary {
     /** Items card when the order has no recognised items yet (owner is reviewing). */
     noItems: string;
     deliverTo: (addr: string) => string;
+    trackLalamove: string;
+    trackDelivery: string;
     recipientTitle: string;
     recipientRequiredHint: string;
     recipientNameLabel: string;

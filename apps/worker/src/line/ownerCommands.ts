@@ -4,7 +4,7 @@
  *   [A12 ]1850[ note]   [A12 ]ship 120   [A12 ]track <url>   [A12 ]ok | hold
  *   [A12 ]paid[! reason]   [A12 ]done   [A12 ]note <text>   list | ?
  */
-import { bahtToSatang } from '@datawan/shared';
+import { bahtToSatang, extractTrackingUrl, isLalamoveUrl } from '@datawan/shared';
 
 export type OwnerCommand =
   | { kind: 'price'; code: string | null; amountSatang: number; note: string | null }
@@ -36,8 +36,15 @@ export function parseOwnerCommand(input: string): OwnerCommand {
 
   let m: RegExpExecArray | null;
   if ((m = /^(?:ship|ส่ง|ค่าส่ง)\s+(\d{1,3}(?:,\d{3})*|\d+)$/i.exec(body))) return { kind: 'ship', code, feeSatang: bahtToSatang(toNumber(m[1]!)) };
-  if ((m = /^track\s+(https?:\/\/\S+)$/i.exec(body))) return { kind: 'track', code, url: m[1]! };
-  if (/^https?:\/\/\S*lalamove\S*$/i.test(body)) return { kind: 'track', code, url: body };
+  // "A7 track <link or pasted share text>", or a Lalamove link pasted on its own / inside share text.
+  if (/^track\b/i.test(body)) {
+    const url = extractTrackingUrl(body.replace(/^track\b/i, ''));
+    return url ? { kind: 'track', code, url } : { kind: 'unknown', text };
+  }
+  {
+    const url = extractTrackingUrl(body);
+    if (url && isLalamoveUrl(url)) return { kind: 'track', code, url };
+  }
   if ((m = /^note\s+([\s\S]+)$/i.exec(body))) return { kind: 'note', code, text: m[1]!.trim() };
   if ((m = /^paid(?:!\s*([\s\S]+))?$/i.exec(body))) return { kind: 'paid', code, overrideReason: m[1]?.trim() || null };
   if (/^(done|delivered|ส่งแล้ว)$/i.test(body)) return { kind: 'done', code };

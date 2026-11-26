@@ -2,10 +2,11 @@
 import { useParams, useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
-import { bahtToSatang, canFire, computeMargin, formatTHB, type OwnerOrderView } from '@datawan/shared';
+import { bahtToSatang, canFire, computeMargin, extractTrackingUrl, formatTHB, type OwnerOrderView } from '@datawan/shared';
 import { MarginPreview } from '@/components/MarginPreview';
 import { deliveryReadyView } from '@/components/RecipientCard';
 import { SlipPaymentCard } from '@/components/SlipPaymentCard';
+import { trackingPushNotice } from '@/components/TrackingButton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardTitle } from '@/components/ui/card';
@@ -164,6 +165,10 @@ export default function OrderDetailPage() {
       {order.status === 'DELIVERING' && (
         <Card>
           <CardTitle>{t.orderDetail.deliveringTitle}</CardTitle>
+          {(() => {
+            const n = trackingPushNotice(t, order.trackingPush);
+            return n && <p className={`mt-1 text-xs ${n.tone === 'ok' ? 'text-[var(--green)]' : 'text-[var(--muted)]'}`}>{n.text}</p>;
+          })()}
           {order.trackingUrl && (
             <a href={order.trackingUrl} target="_blank" rel="noreferrer" className="mt-1 block text-sm text-[var(--brand)] underline">
               {order.trackingUrl}
@@ -288,15 +293,17 @@ function ShippingCard({
 
 function DispatchCard({ t, busy, onSubmit }: { t: Dictionary; busy: boolean; onSubmit: (trackingUrl: string) => void }) {
   const [url, setUrl] = useState('');
+  const extracted = url.trim() ? extractTrackingUrl(url) : null;
   return (
     <Card>
       <CardTitle>{t.orderDetail.dispatchTitle}</CardTitle>
       <div className="mt-2 flex items-center gap-2">
         <Input placeholder={t.orderDetail.trackingPlaceholder} value={url} onChange={(e) => setUrl(e.target.value)} />
-        <Button disabled={busy || !url} onClick={() => onSubmit(url)}>
+        <Button disabled={busy || !extracted} onClick={() => extracted && onSubmit(extracted)}>
           {t.orderDetail.dispatchSubmit}
         </Button>
       </div>
+      {url.trim() && <p className={`mt-1 break-all text-xs ${extracted ? 'text-[var(--muted)]' : 'text-[var(--red)]'}`}>{extracted ? t.orderDetail.trackingExtracted(extracted) : t.orderDetail.trackingNoLink}</p>}
     </Card>
   );
 }

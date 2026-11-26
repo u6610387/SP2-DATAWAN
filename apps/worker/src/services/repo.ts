@@ -121,5 +121,7 @@ export interface Repo {
 
   insertEvent(e: NewOrderEvent): Promise<OrderEventRow>;
   getEvent(id: string): Promise<OrderEventRow | null>;
+  /** PUSH_SENT / PUSH_DEFERRED rows for an order, newest first. */
+  listPushEvents(orderId: string): Promise<OrderEventRow[]>;
   countEventsSince(event: string, sinceIso: string): Promise<number>;
 }

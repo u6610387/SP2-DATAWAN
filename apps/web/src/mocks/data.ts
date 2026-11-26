@@ -30,6 +30,7 @@ function order(partial: Partial<OwnerOrderView> & Pick<OwnerOrderView, 'id' | 'c
     lalamoveCard: null,
     needsOwnerReview: false,
     pushCount: 0,
+    trackingPush: null,
     ...partial,
   };
 }

@@ -293,6 +293,13 @@ export class MemoryRepo implements Repo {
     this.events.push(r);
     return { ...r };
   }
+  async listPushEvents(orderId: string) {
+    return this.events
+      .filter((e) => e.order_id === orderId && (e.event === 'PUSH_SENT' || e.event === 'PUSH_DEFERRED'))
+      .map((e, i) => ({ e, i }))
+      .sort((a, b) => b.e.created_at.localeCompare(a.e.created_at) || b.i - a.i)
+      .map(({ e }) => ({ ...e }));
+  }
   async getEvent(id: string) {
     const e = this.events.find((x) => x.id === id);
     return e ? { ...e } : null;
