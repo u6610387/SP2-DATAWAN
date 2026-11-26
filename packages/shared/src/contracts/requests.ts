@@ -136,3 +136,17 @@ export const ProductCreateRequest = z.object({
   categoryId: z.string().uuid().nullable().default(null),
 });
 export type ProductCreateRequest = z.infer<typeof ProductCreateRequest>;
+
+/** Owner: edit an existing product from the สต็อก list (any subset; at least one field). */
+export const ProductUpdateRequest = z
+  .object({
+    nameTh: z.string().trim().min(1).max(80).optional(),
+    unit: z.enum(UNITS).optional(),
+    prepTypes: z.array(z.enum(PREP_TYPES)).min(1).max(PREP_TYPES.length).optional(),
+    aliases: z.array(z.string().trim().max(40)).max(20).optional(),
+    categoryId: z.string().uuid().nullable().optional(),
+    isActive: z.boolean().optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'nothing to update' });
+export type ProductUpdateRequest = z.infer<typeof ProductUpdateRequest>;
+

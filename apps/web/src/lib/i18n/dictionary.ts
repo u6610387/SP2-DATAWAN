@@ -153,6 +153,14 @@ export interface Dictionary {
     save: string;
     cancel: string;
     categoryAdded: (name: string) => string;
+    autoCategory: (category: string) => string;
+    moveToCategory: string;
+    editProduct: string;
+    openForSale: string;
+    closedForSale: string;
+    productMoved: (name: string, category: string) => string;
+    productMerged: (name: string, category: string) => string;
+    productSaved: (name: string) => string;
     productAdded: (name: string) => string;
   };
   liff: {

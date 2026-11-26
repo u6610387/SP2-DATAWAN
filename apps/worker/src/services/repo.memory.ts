@@ -89,6 +89,19 @@ export class MemoryRepo implements Repo {
     this.categories.push(row);
     return { ...row };
   }
+  async getProduct(id: string) {
+    const p = this.products.find((x) => x.id === id);
+    return p ? { ...p } : null;
+  }
+  async updateProduct(id: string, patch: Partial<Pick<ProductRow, 'name_th' | 'aliases' | 'unit' | 'prep_types' | 'category_id' | 'is_active'>>) {
+    const p = this.products.find((x) => x.id === id);
+    if (!p) throw new Error('product not found');
+    const next = { ...p, ...patch };
+    // DB guard (0006 products_name_active_uidx)
+    if (next.is_active && this.products.some((x) => x.id !== id && x.is_active && x.name_th.trim().toLowerCase() === next.name_th.trim().toLowerCase())) throw new Error('duplicate key value violates unique constraint "products_name_active_uidx"');
+    Object.assign(p, patch, { updated_at: this.ts() });
+    return { ...p };
+  }
   async insertProduct(p: { name_th: string; aliases: string[]; unit: ProductRow['unit']; prep_types: ProductRow['prep_types']; category_id: string | null }) {
     // DB guard (0006 products_name_active_uidx)
     if (this.products.some((x) => x.is_active && x.name_th.trim().toLowerCase() === p.name_th.trim().toLowerCase())) throw new Error('duplicate key value violates unique constraint "products_name_active_uidx"');

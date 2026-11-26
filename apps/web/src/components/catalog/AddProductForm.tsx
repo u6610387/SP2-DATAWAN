@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { PREP_OPTIONS, UNIT_OPTIONS, parseAliases, type Category } from '@/lib/catalog';
+import { PREP_OPTIONS, UNIT_OPTIONS, parseAliases, suggestCategory, type Category } from '@/lib/catalog';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 
 export interface NewProduct {
@@ -32,6 +32,13 @@ export function AddProductForm({
   const [name, setName] = useState('');
   const [unit, setUnit] = useState<NewProduct['unit']>('kg');
   const [categoryId, setCategoryId] = useState<string | null>(defaultCategoryId);
+  // Auto-pick a category from the typed name until the owner chooses one by hand.
+  const [categoryTouched, setCategoryTouched] = useState(defaultCategoryId !== null);
+  const auto = !categoryTouched ? suggestCategory(name, categories) : null;
+  const onName = (v: string) => {
+    setName(v);
+    if (!categoryTouched) setCategoryId(suggestCategory(v, categories)?.id ?? null);
+  };
   const [prep, setPrep] = useState<NewProduct['prepTypes']>(['any']);
   const [aliasText, setAliasText] = useState('');
   const togglePrep = (p: NewProduct['prepTypes'][number]) =>
@@ -48,7 +55,7 @@ export function AddProductForm({
       <label className="mt-2 block text-xs text-[var(--muted)]" htmlFor="product-name">
         {t.catalog.productName}
       </label>
-      <Input id="product-name" value={name} placeholder={t.catalog.productPlaceholder} onChange={(e) => setName(e.target.value)} />
+      <Input id="product-name" value={name} placeholder={t.catalog.productPlaceholder} onChange={(e) => onName(e.target.value)} />
 
       <div className="mt-2 grid grid-cols-2 gap-2">
         <div>
@@ -67,7 +74,10 @@ export function AddProductForm({
           <label className="block text-xs text-[var(--muted)]" htmlFor="product-category">
             {t.catalog.category}
           </label>
-          <select id="product-category" className="mt-1 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 text-sm" value={categoryId ?? ''} onChange={(e) => setCategoryId(e.target.value || null)}>
+          <select id="product-category" className="mt-1 h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 text-sm" value={categoryId ?? ''} onChange={(e) => {
+              setCategoryTouched(true);
+              setCategoryId(e.target.value || null);
+            }}>
             <option value="">{t.catalog.noCategory}</option>
             {categories.map((c) => (
               <option key={c.id} value={c.id}>
@@ -77,6 +87,8 @@ export function AddProductForm({
           </select>
         </div>
       </div>
+
+      {auto && categoryId === auto.id && <p className="mt-1 text-xs text-[var(--brand)]">{t.catalog.autoCategory(auto.nameTh)}</p>}
 
       <div className="mt-3 text-xs text-[var(--muted)]">{t.catalog.prepTypes}</div>
       <div className="mt-1 flex flex-wrap gap-2" role="group" aria-label={t.catalog.prepTypes}>
