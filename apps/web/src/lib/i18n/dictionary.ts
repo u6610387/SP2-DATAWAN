@@ -97,6 +97,8 @@ export interface Dictionary {
     markDelivered: string;
     deliveredTitle: string;
     deliveredSummary: (total: string) => string;
+    waitingDeliveryTitle: string;
+    waitingDeliveryBody: string;
     cancelOrder: string;
     cancelTitle: string;
     cancelHint: string;

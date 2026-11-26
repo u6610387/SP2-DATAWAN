@@ -89,6 +89,8 @@ export const en: Dictionary = {
     markDelivered: 'Mark delivered',
     deliveredTitle: 'Delivered',
     deliveredSummary: (total) => `Sale ${total} · stock deducted`,
+    waitingDeliveryTitle: 'Waiting for delivery details',
+    waitingDeliveryBody: 'No location pin or recipient name/phone yet. The customer has the link; you can enter the shipping fee once they are complete.',
     cancelOrder: 'Cancel order',
     cancelTitle: 'Cancel this order?',
     cancelHint: 'Only possible before payment is confirmed. The customer is not messaged.',

@@ -32,7 +32,7 @@ import { ownerCheckSlipQr } from '../services/slipQrCheck';
 import { splitPath } from '../services/storage';
 import { toOwnerOrderView } from '../services/views';
 import { startOfBangkokDay } from '../util/time';
-import { apiError, checkIfMatch, conflictError } from './respond';
+import { apiError, checkIfMatch, conflictError, deliveryIncompleteError } from './respond';
 
 type Env = { Bindings: Bindings; Variables: { ownerId: string } };
 
@@ -157,6 +157,7 @@ export function createOwnerRoutes(deps: Deps) {
       : await actions.ownerCounter(deps, order, amountSatang!);
     if (!r.ok) {
       if (r.reason === 'NO_CANDIDATE') return apiError(c, 'VALIDATION_FAILED', 'no customer counter-offer to accept', 422);
+      if (r.reason === 'DELIVERY_INCOMPLETE') return deliveryIncompleteError(c);
       return conflictError(c, r.reason, r.order);
     }
     return c.json(await buildOwnerView(deps, r.order));
@@ -170,7 +171,7 @@ export function createOwnerRoutes(deps: Deps) {
     const parsed = ShippingRequest.safeParse(await readJson(c));
     if (!parsed.success) return apiError(c, 'VALIDATION_FAILED', parsed.error.message, 400);
     const r = await actions.ownerSetShipping(deps, order, parsed.data.feeSatang);
-    if (!r.ok) return conflictError(c, r.reason, r.order);
+    if (!r.ok) return r.reason === 'DELIVERY_INCOMPLETE' ? deliveryIncompleteError(c) : conflictError(c, r.reason, r.order);
     return c.json(await buildOwnerView(deps, r.order));
   });
 

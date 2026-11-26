@@ -23,11 +23,15 @@ import { sendPushGuarded, type GuardedPushResult } from '../line/quota';
 import { applyEvent, type ApplyResult } from './orders';
 import { allocateUnitPrices, costItems, marginFor } from './pricing';
 import { checkSlip } from './slipCheck';
+import { deliveryReady } from './recipient';
 import { withNames } from './itemNames';
 import { addMinutes } from '../util/time';
 
 type ConflictReason = 'INVALID_FROM_STATE' | 'WRONG_ACTOR' | 'VERSION_CONFLICT';
 type Conflict = { ok: false; reason: ConflictReason; order: OrderRow };
+/** No location or recipient yet: the shipping-fee step can't be entered or completed. */
+type DeliveryIncomplete = { ok: false; reason: 'DELIVERY_INCOMPLETE'; order: OrderRow };
+const incomplete = (order: OrderRow): DeliveryIncomplete => ({ ok: false, reason: 'DELIVERY_INCOMPLETE', order });
 
 async function nextRound(deps: Deps, orderId: string): Promise<number> {
   return (await deps.repo.listNegotiations(orderId)).length + 1;
@@ -97,10 +101,12 @@ export async function ownerCounter(deps: Deps, order: OrderRow, amountSatang: nu
 export type OwnerAcceptCounterResult =
   | { ok: true; order: OrderRow; items: OrderItemRow[]; margin: Margin; amountSatang: number }
   | { ok: false; reason: 'NO_CANDIDATE'; order: OrderRow }
+  | DeliveryIncomplete
   | Conflict;
 
 /** Owner accepts the customer's latest counter-offer. */
 export async function ownerAcceptCounter(deps: Deps, order: OrderRow): Promise<OwnerAcceptCounterResult> {
+  if (!deliveryReady(order)) return incomplete(order);
   const rounds = await deps.repo.listNegotiations(order.id);
   const counter = [...rounds].reverse().find((n) => n.actor === 'customer' && n.action === 'counter');
   if (!counter?.amount_satang) return { ok: false, reason: 'NO_CANDIDATE', order };
@@ -138,10 +144,12 @@ export async function ownerHold(deps: Deps, order: OrderRow): Promise<OwnerHoldR
 
 export type OwnerSetShippingResult =
   | { ok: true; order: OrderRow; lalamoveCard: string; push: GuardedPushResult }
+  | DeliveryIncomplete
   | Conflict;
 
 /** Set the shipping fee: locks the total, opens the PromptPay QR + payment timer. */
 export async function ownerSetShipping(deps: Deps, order: OrderRow, feeSatang: number): Promise<OwnerSetShippingResult> {
+  if (!deliveryReady(order)) return incomplete(order);
   const res = await applyEvent(deps, order, 'OWNER_SET_SHIPPING', 'owner', {
     shipping_fee_satang: feeSatang,
     payment_expires_at: addMinutes(deps.now(), deps.cfg.PAYMENT_EXPIRY_MINUTES).toISOString(),
@@ -254,9 +262,10 @@ export async function ownerDelivered(
 
 // ---------------- customer actions (LINE + LIFF) ----------------
 
-export type CustomerAcceptResult = { ok: true; order: OrderRow } | Conflict;
+export type CustomerAcceptResult = { ok: true; order: OrderRow } | DeliveryIncomplete | Conflict;
 
 export async function customerAccept(deps: Deps, order: OrderRow): Promise<CustomerAcceptResult> {
+  if (!deliveryReady(order)) return incomplete(order);
   const res = await applyEvent(deps, order, 'CUSTOMER_ACCEPT', 'customer');
   if (!res.ok) return asConflict(res);
   const rounds = await deps.repo.listNegotiations(order.id);

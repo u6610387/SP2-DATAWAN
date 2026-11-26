@@ -75,6 +75,7 @@ export const th = {
     help: 'คำสั่ง: A12 1850 [โน้ต] | A12 ship 120 | A12 ok/hold/1700 | A12 paid | A12 track <ลิงก์> | A12 done | A12 note <ข้อความ> | list',
     unknown: 'ไม่เข้าใจคำสั่งค่ะ',
     notFound: (code: string) => `ไม่พบออเดอร์ ${code} ที่ยังเปิดอยู่`,
+    deliveryIncomplete: (code: string) => `⏳ ${code} รอลูกค้ากรอกที่อยู่/ชื่อผู้รับ/เบอร์โทรก่อน จึงจะรับราคาหรือใส่ค่าส่งได้ (ระบบส่งลิงก์ให้ลูกค้าแล้ว)`,
     ambiguous: (codes: string[]) => `มีหลายออเดอร์ กรุณาระบุรหัส: ${codes.join(', ')}`,
     noCandidate: 'ไม่มีออเดอร์ที่รอคำสั่งนี้',
     wrongState: (code: string, status: string) => `${code} อยู่สถานะ "${status}" ใช้คำสั่งนี้ไม่ได้`,

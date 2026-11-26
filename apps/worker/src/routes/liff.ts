@@ -13,7 +13,7 @@ import * as actions from '../services/orderActions';
 import { setRecipient } from '../services/recipient';
 import { splitPath } from '../services/storage';
 import { toCustomerOrderView } from '../services/views';
-import { apiError, checkIfMatch, conflictError } from './respond';
+import { apiError, checkIfMatch, conflictError, deliveryIncompleteError } from './respond';
 
 type Env = { Bindings: Bindings; Variables: { user: UserRow } };
 
@@ -77,7 +77,7 @@ export function createLiffRoutes(deps: Deps) {
     const conflict = checkIfMatch(c, order);
     if (conflict) return conflict;
     const r = await actions.customerAccept(deps, order);
-    if (!r.ok) return conflictError(c, r.reason, r.order);
+    if (!r.ok) return r.reason === 'DELIVERY_INCOMPLETE' ? deliveryIncompleteError(c) : conflictError(c, r.reason, r.order);
     return c.json(await buildCustomerView(deps, r.order));
   });
 

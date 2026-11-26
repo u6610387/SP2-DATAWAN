@@ -18,6 +18,7 @@ import {
   type ProductRow,
   type SlipCheck,
   type SlipReadResult,
+  type OrderStatus,
   type UserRow,
 } from '@datawan/shared';
 import { lalamoveCardText } from '../line/flex';
@@ -26,6 +27,8 @@ import { orderNeedsRecipient } from './recipient';
 import { orderChannel } from './realtime';
 import { buildPromptPayPayload } from './promptpay';
 import { withNames } from './itemNames';
+
+const LALAMOVE_CARD_STATES = new Set<OrderStatus>(['AWAITING_SHIPPING_FEE', 'AWAITING_PAYMENT', 'PAYMENT_EXPIRED', 'PAYMENT_REVIEW', 'PAID', 'DELIVERING']);
 
 function toItemView(items: OrderItemRow[], products: ProductRow[]): OrderItemView[] {
   return withNames(items, products).map((it) => ({
@@ -136,8 +139,9 @@ export function toOwnerOrderView(args: OwnerViewArgs): OwnerOrderView {
     marginSatang: margin.satang,
     marginColor: margin.color,
     latestPayment: toPaymentCheckView(args.latestPayment, args.slipImageUrl),
-    lalamoveCard: order.shipping_fee_satang !== null
-      ? { text: lalamoveCardText(order, address, user), mapUrl: address ? mapUrl(address.lat, address.lng) : null }
+    // From "ร้านกำลังเช็กค่าส่ง" on: the owner needs the address + pin to get a Lalamove quote BEFORE typing the fee.
+    lalamoveCard: address && LALAMOVE_CARD_STATES.has(order.status)
+      ? { text: lalamoveCardText(order, address, user), mapUrl: mapUrl(address.lat, address.lng) }
       : null,
     needsOwnerReview: args.needsOwnerReview,
     pushCount: args.pushCount,
