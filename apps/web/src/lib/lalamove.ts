@@ -11,9 +11,9 @@ export interface LalamoveFields {
   pin: string | null;
   mapUrl: string | null;
   name: string | null;
-  /** Shown on screen, e.g. 093-329-3729. */
+  /** Shown on screen, e.g. 081-234-5678. */
   phoneDisplay: string | null;
-  /** Copied, e.g. 933293729 (pastes right after +66). */
+  /** Copied, e.g. 812345678 (pastes right after +66). */
   phoneForPlus66: string | null;
   address: string | null;
   /** "Copy all" fallback: the full card text. */
