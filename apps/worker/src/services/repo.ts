@@ -5,6 +5,10 @@
  */
 import type {
   AddressRow,
+  B2bStatus,
+  BusinessDocumentRow,
+  BusinessProfileRow,
+  EventActor,
   NegotiationRow,
   OrderEventRow,
   OrderItemRow,
@@ -19,6 +23,8 @@ import type {
   PushSubscriptionRow,
   QuotaLogRow,
   StockLogRow,
+  UserEventName,
+  UserEventRow,
   UserRow,
 } from '@datawan/shared';
 
@@ -135,4 +141,21 @@ export interface Repo {
   /** PUSH_SENT / PUSH_DEFERRED rows for an order, newest first. */
   listPushEvents(orderId: string): Promise<OrderEventRow[]>;
   countEventsSince(event: string, sinceIso: string): Promise<number>;
+
+  // ---- B2B verification ----
+  getBusinessProfile(userId: string): Promise<BusinessProfileRow | null>;
+  upsertBusinessProfile(p: Omit<BusinessProfileRow, 'created_at' | 'updated_at'>): Promise<BusinessProfileRow>;
+  /** Conditional update (where user_id and status = expectedStatus); null when the status no longer matches. */
+  updateBusinessProfile(userId: string, expectedStatus: B2bStatus, patch: Partial<BusinessProfileRow>): Promise<BusinessProfileRow | null>;
+  /** 'pending' = PENDING_VERIFICATION or needs_rereview; 'b2b' = VERIFIED; newest submission first. */
+  listBusinessProfiles(filter: 'pending' | 'b2b' | 'all'): Promise<BusinessProfileRow[]>;
+  setUserB2B(userId: string, patch: { user_type: 'B2C' | 'B2B'; business_name: string | null; default_delivery_window: string | null }): Promise<UserRow>;
+  insertUserEvent(e: { user_id: string; actor: EventActor; event: UserEventName; payload?: Record<string, unknown> }): Promise<UserEventRow>;
+  /** All account events of one user, oldest first. */
+  listUserEvents(userId: string): Promise<UserEventRow[]>;
+  insertBusinessDocuments(rows: { user_id: string; path: string; content_type: string }[]): Promise<BusinessDocumentRow[]>;
+  listBusinessDocuments(userId: string): Promise<BusinessDocumentRow[]>;
+  /** Documents uploaded on/before the profile's decided_at, where decided_at < decidedBeforeIso. */
+  listDocsDueForPurge(decidedBeforeIso: string): Promise<BusinessDocumentRow[]>;
+  deleteBusinessDocuments(ids: string[]): Promise<void>;
 }

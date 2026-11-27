@@ -1,5 +1,5 @@
 /** Slip / bill image storage (Supabase Storage, private buckets). */
-export type Bucket = 'slips' | 'supplier-bills';
+export type Bucket = 'slips' | 'supplier-bills' | 'business-docs';
 export type ImageMime = 'image/jpeg' | 'image/png' | 'image/webp';
 
 /** Splits a stored path like 'slips/<orderId>/<uuid>.jpg' (as returned by upload()) back into bucket + key. */
@@ -17,6 +17,8 @@ export interface ImageStorage {
   createSignedUploadUrl(bucket: Bucket, key: string): Promise<{ uploadUrl: string; path: string }>;
   /** A short-lived GET URL for the owner dashboard to preview a private slip/bill image. */
   getSignedUrl(bucket: Bucket, key: string, expiresInSeconds: number): Promise<string>;
+  /** Delete the named objects (keys within the bucket). No-op for an empty list. */
+  remove(bucket: Bucket, keys: string[]): Promise<void>;
   /** Delete objects older than `days`; returns count deleted. */
   deleteOlderThan(bucket: Bucket, days: number, now: Date): Promise<number>;
 }
@@ -58,6 +60,15 @@ export function createSupabaseStorage(supabaseUrl: string, serviceRoleKey: strin
       if (!res.ok) throw new Error(`storage sign failed: ${res.status} ${await res.text()}`);
       const { signedURL } = (await res.json()) as { signedURL: string };
       return `${supabaseUrl}/storage/v1${signedURL}`;
+    },
+    async remove(bucket, keys) {
+      if (!keys.length) return;
+      const res = await fetchImpl(`${supabaseUrl}/storage/v1/object/${bucket}`, {
+        method: 'DELETE',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prefixes: keys }),
+      });
+      if (!res.ok) throw new Error(`storage remove failed: ${res.status} ${await res.text()}`);
     },
     async deleteOlderThan(bucket, days, now) {
       const cutoff = now.getTime() - days * 86_400_000;
@@ -106,6 +117,9 @@ export class MemoryStorage implements ImageStorage {
   }
   async getSignedUrl(bucket: string, key: string) {
     return `memory://signed/${bucket}/${key}`;
+  }
+  async remove(bucket: string, keys: string[]) {
+    for (const k of keys) this.objects.delete(`${bucket}/${k}`);
   }
   async deleteOlderThan(_bucket: string, days: number, now: Date) {
     let n = 0;
