@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { UserRow } from '@datawan/shared';
+import { B2B_KEYWORD_RE } from '../src/handlers/customer';
 import { runImageCleanup } from '../src/jobs/cleanup';
 import { applyB2b, approveB2b, B2B_DOC_RETENTION_DAYS } from '../src/services/b2b';
 import type { MemoryStorage } from '../src/services/storage';
@@ -22,6 +23,15 @@ const cleanup = (h: ReturnType<typeof makeHarness>) =>
   runImageCleanup({ ...h.deps, cfg: { ...h.deps.cfg, STORAGE_RETENTION_DAYS: 3650 } });
 const upload = (h: ReturnType<typeof makeHarness>, n: number) =>
   (h.deps.storage as MemoryStorage).upload('business-docs', docPath(n).slice('business-docs/'.length), new Uint8Array([n]), 'image/jpeg');
+
+describe('B2B_KEYWORD_RE', () => {
+  it.each(['เลขบัญชีร้านอะไรคะ', 'โอนเข้าบัญชีร้านได้ไหม', 'บัญชีร้านค้าชื่ออะไร', 'กุ้ง 2 โล'])('does not match %s', (t) => {
+    expect(B2B_KEYWORD_RE.test(t)).toBe(false);
+  });
+  it.each(['สมัครร้านค้า', 'อยากสมัครร้านค้าค่ะ', 'บัญชีร้าน', 'บัญชีร้านค้า', 'ร้านค้า B2B', 'b2b'])('matches %s', (t) => {
+    expect(B2B_KEYWORD_RE.test(t)).toBe(true);
+  });
+});
 
 describe('B2B chat keyword', () => {
   it('"สมัครร้านค้า" replies once with the /account link, no push, no order', async () => {

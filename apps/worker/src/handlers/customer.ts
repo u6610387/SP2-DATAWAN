@@ -31,7 +31,7 @@ export const PAYABLE = ['AWAITING_PAYMENT', 'PAYMENT_EXPIRED'] as const;
 /** "ขอลิ้งค์ lalamove", "ลิงก์ส่งของ", "ถึงไหนแล้ว", "track" … (deterministic; no AI call). */
 export const TRACKING_RE = /(ลิ้?ง(ค์|ก์|ก)|link|lalamove|ลาล่?ามูฟ|ติดตาม|ถึงไหน|ส่งถึง(ยัง|หรือยัง)|ไรเดอร์|rider|track)/i;
 /** "สมัครร้านค้า", "บัญชีร้าน", "b2b" … → LIFF account link (deterministic; reply only, never push). */
-export const B2B_KEYWORD_RE = /(สมัคร\s*ร้านค้า|บัญชี\s*ร้าน|ร้านค้า\s*b2b|\bb2b\b)/i;
+export const B2B_KEYWORD_RE = /(สมัคร\s*(ร้านค้า|บัญชีร้าน)|ร้านค้า\s*b2b|\bb2b\b|^\s*บัญชี\s*ร้าน(ค้า)?\s*$)/i;
 const ACCEPT_RE = /^(ok|โอเค|ตกลง|เอา|รับ|ได้|ได้ค่ะ|ได้ครับ)\s*(ค่ะ|ครับ|คะ|จ้า)?$/i;
 const COUNTER_RE = /^\s*(?:ขอ\s*)?(\d{1,3}(?:,\d{3})+|\d{2,6})\s*(?:บาท)?\s*(?:ได้ไหม|ได้มั้ย|ได้ไหมคะ|ได้ไหมครับ|ได้มั้ยคะ|นะคะ|นะครับ)?\s*$/;
 
