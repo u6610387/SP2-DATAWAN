@@ -752,5 +752,36 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     if (prompt.includes('"data":"a=new')) await webhook(CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'new') } });
     expect((await db.query<{ n: number }>('select count(*)::int as n from order_items where product_id = $1', [p.id])).rows[0]!.n).toBeGreaterThan(0);
   }, 60_000);
+
+  // Production A12: "เอาปลาทับทิม" → "5" → "5 โล" kept needs_owner_review = true after the quantity was
+  // filled in. The flag is now re-evaluated from the whole draft on every edit.
+  it('review flag: multi-message quantity completion clears it; still-ambiguous drafts keep it (real Postgres)', async () => {
+    await web.ownerFetch('/api/owner/products', OWNER_TOKEN, { method: 'POST', body: { nameTh: 'ปลาทับทิมแดง', unit: 'kg', aliases: ['ทับทิมแดง'] } });
+    const say = (user: string, text: string) => webhook(user, { type: 'message', message: { id: `m${seq + 1}`, type: 'text', quoteToken: 'q', text } });
+    const latest = async (user: string) =>
+      (await db.query<{ id: string; needs_owner_review: boolean; status: string }>(
+        `select o.id, o.needs_owner_review, o.status from orders o join users u on u.id = o.user_id where u.line_user_id = $1 order by o.created_at desc limit 1`, [user])).rows[0]!;
+
+    // A12 shape: flagged while the quantity is missing, cleared once it's given.
+    const A = 'Ureviewcomplete00000000000000000000';
+    const flags: boolean[] = [];
+    for (const m of ['เอาทับทิมแดง', '5', '5 โล']) { await say(A, m); flags.push((await latest(A)).needs_owner_review); }
+    expect(flags).toEqual([true, true, false]);
+    const a = await latest(A);
+    const lines = (await db.query<{ qty: string; name_th: string }>(`select i.qty::text as qty, p.name_th from order_items i join products p on p.id = i.product_id where i.order_id = $1`, [a.id])).rows;
+    expect(lines.map((l) => [l.name_th, Number(l.qty)])).toEqual([['ปลาทับทิมแดง', 5]]);
+    const ev = (await db.query<{ event: string; actor: string; payload: { reasons: string[] } }>(`select event, actor, payload from order_events where order_id = $1 and event in ('REVIEW_CLEARED','REVIEW_FLAGGED') order by created_at`, [a.id])).rows;
+    expect(ev).toEqual([{ event: 'REVIEW_CLEARED', actor: 'system', payload: { reasons: [] } }]);
+
+    // Still ambiguous after the follow-up: no quantity yet → stays flagged; no product match → stays flagged.
+    const B = 'Ureviewambiguous0000000000000000000';
+    await say(B, 'เอาทับทิมแดง');
+    await say(B, 'ขอตัวสวยๆ นะคะ');
+    expect((await latest(B)).needs_owner_review).toBe(true);
+    const C = 'Ureviewnoproduct0000000000000000000';
+    await say(C, 'กุ้งมังกร 2 โล');
+    await say(C, 'กุ้งมังกรตัวใหญ่ 2 โล');
+    expect((await latest(C)).needs_owner_review).toBe(true);
+  }, 60_000);
 });
 

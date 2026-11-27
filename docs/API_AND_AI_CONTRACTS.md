@@ -337,6 +337,12 @@ export type AiResult<T> =
 - `temperature: 0` for all extraction tasks; `0.4` for `OWNER_NOTE.message_th`.
 - Retries: 429/5xx → backoff 1 s, 3 s (+ jitter), honour `Retry-After`; max 2 retries. Invalid JSON/Zod fail → 1 repair retry with the validation error appended. Then return `ok:false`.
 - Fallback on `ok:false`: never block the flow. Order parse → reply "รับออเดอร์แล้ว ร้านกำลังตรวจสอบ" and set `needs_owner_review`. Bill/slip → owner enters manually.
+- **`needs_owner_review` for chat drafts is re-evaluated on creation and on every customer edit**, not kept forever (`reviewNeeded()` in `apps/worker/src/services/review.ts`).
+  - It is true while any of these holds: no items; an item with no product match or no positive quantity; any `missing_fields`; a `clarification_question_th`; any post-check warning.
+  - So a follow-up that fills in the missing quantity clears it.
+  - Every flip writes `REVIEW_FLAGGED` / `REVIEW_CLEARED` (actor `system`, reason codes only).
+  - The unrecognised-product owner alert still fires once per order (`UNRECOGNISED_ALERTED`).
+- **Draft edits and the `raw_text` check:** an item may keep a `raw_text` that appears **exactly** in the previous draft (`checkOrderParse` `draftRawTexts`, PII-stripped). Any other span must appear in the new message.
 - Every call logs `AiCallMeta` (no payload content) for the eval and for free-tier rate monitoring.
 
 ### 6.2 Task 1 — ORDER_PARSE (NLP)

@@ -9,7 +9,16 @@ const MAX_QTY: Record<string, number> = { kg: 50, piece: 200, box: 50, tray: 50,
 
 export function checkOrderParse(
   r: OrderParseResult,
-  ctx: { strippedMessage: string; catalog: CatalogRef[]; allowDraftItems?: boolean },
+  ctx: {
+    strippedMessage: string;
+    catalog: CatalogRef[];
+    allowDraftItems?: boolean;
+    /**
+     * raw_text spans of the previous draft (PII-stripped). On an edit, an item may keep a span the
+     * customer wrote in an EARLIER message, but only exactly as it was; anything new must be in this message.
+     */
+    draftRawTexts?: string[];
+  },
 ): { result: OrderParseResult; warnings: string[] } {
   const warnings: string[] = [];
   const missing = new Set<MissingField>(r.missing_fields);
@@ -36,7 +45,7 @@ export function checkOrderParse(
       missing.add('prep_type');
     }
     // Anti-hallucination: the span must exist in what the customer actually wrote.
-    if (!ctx.allowDraftItems && r.intent !== 'reorder' && !ctx.strippedMessage.includes(out.raw_text)) {
+    if (!ctx.allowDraftItems && r.intent !== 'reorder' && !ctx.strippedMessage.includes(out.raw_text) && !(ctx.draftRawTexts ?? []).includes(out.raw_text)) {
       warnings.push(`raw_text not found in message: "${out.raw_text}"`);
     }
     return out;
