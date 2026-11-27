@@ -10,7 +10,10 @@ export type OwnerAlert =
   | { kind: 'OWNER_TIMEOUT'; orderId: string; code: string; minutes: number }
   | { kind: 'PAYMENT_EXPIRED'; orderId: string; code: string }
   | { kind: 'QUOTA_WARNING'; used: number; limit: number; mode: string }
-  | { kind: 'NEEDS_REVIEW'; orderId: string; code: string; reason: string };
+  | { kind: 'NEEDS_REVIEW'; orderId: string; code: string; reason: string }
+  // B2B alerts carry no business name: the push is shown on a lock screen (PDPA).
+  | { kind: 'B2B_APPLICATION'; userId: string }
+  | { kind: 'B2B_REREVIEW'; userId: string };
 
 export interface OwnerNotifier {
   notify(alert: OwnerAlert): Promise<void>;
