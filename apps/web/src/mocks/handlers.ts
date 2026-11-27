@@ -148,7 +148,7 @@ export async function mockFetch<T>(path: string, opts: RequestOptions): Promise<
   if (pathOnly === '/api/owner/customers' && method === 'GET') {
     const filter = new URLSearchParams(query).get('filter') ?? 'all';
     if (!['pending', 'b2b', 'all'].includes(filter)) throw new ApiRequestError(400, 'VALIDATION_FAILED', 'bad filter');
-    const rows = mockB2bCustomers.filter((c) => (filter === 'pending' ? c.status === 'PENDING_VERIFICATION' : filter === 'b2b' ? c.status === 'VERIFIED' : true));
+    const rows = mockB2bCustomers.filter((c) => (filter === 'pending' ? c.status === 'PENDING_VERIFICATION' || c.needsRereview : filter === 'b2b' ? c.status === 'VERIFIED' : true));
     return rows.map(({ userId, customerName, businessName, businessType, status, needsRereview, submittedAt }) => ({ userId, customerName, businessName, businessType, status, needsRereview, submittedAt })) as unknown as T;
   }
   const custMatch = /^\/api\/owner\/customers\/([^/]+)(?:\/(approve|reject|acknowledge|revoke))?$/.exec(pathOnly!);
