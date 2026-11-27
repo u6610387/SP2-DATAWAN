@@ -72,7 +72,8 @@ export interface CustomerOrderView {
 
 /** What the owner dashboard sees. */
 export interface OwnerOrderView extends Omit<CustomerOrderView, 'realtime'> {
-  customer: { id: string; type: 'B2C' | 'B2B'; name: string | null; businessName: string | null; phone: string | null };
+  customer: { id: string; type: 'B2C' | 'B2B'; name: string | null; businessName: string | null; phone: string | null;
+    b2b: { businessName: string; deliveryWindow: string | null } | null };  // non-null only while the business profile is VERIFIED (badge)
   rawOrderText: string | null;
   costSatang: number | null;            // Σ item costs, null if unknown
   suggestedPriceSatang: number | null;  // cost-plus
@@ -114,6 +115,9 @@ export interface PaymentCheckView {
 | POST | `/api/liff/orders/:id/cancel` | `{ reason? }` | `CustomerOrderView` | Only before `PAYMENT_REVIEW` |
 | POST | `/api/liff/orders/:id/heartbeat` | – | `204` | Every 30 s while visible |
 | POST | `/api/liff/reorder` | `{ sourceOrderId, requestedDeliveryAt? }` | `CustomerOrderView` | B2B; new order in `AWAITING_CONFIRMATION` |
+| GET | `/api/liff/account` | – | `CustomerAccountView` | B2B account; see §2.3a |
+| POST | `/api/liff/account/b2b/doc-upload-url` | `B2bDocUploadUrlRequest { contentType }` | `{ uploadUrl, path }` | §2.3a; 409 `TOO_MANY_DOCUMENTS` at 3 un-purged documents |
+| POST | `/api/liff/account/b2b` | `B2bApplyRequest` (incl. `pdpaConsent: true`) | `CustomerAccountView` | §2.3a; 409 `TOO_MANY_DOCUMENTS` / `INVALID_FROM_STATE` |
 
 ### 2.3 Owner endpoints — owner: Thanadon, consumer: Kitirat
 
@@ -144,6 +148,10 @@ export interface PaymentCheckView {
 | GET | `/api/owner/price-history?productId=` | – | `{ points: {kind, unitPriceSatang, recordedAt}[] }` |
 | GET | `/api/owner/quota` | – | `QuotaStatus` |
 | POST | `/api/owner/push-subscriptions` | `PushSubscriptionJSON` | `204` |
+| GET | `/api/owner/customers?filter=pending\|b2b\|all` | – | `OwnerB2bSummaryView[]` (§2.3a) |
+| GET | `/api/owner/customers/:userId` | – | `OwnerB2bDetailView` (§2.3a) |
+| POST | `/api/owner/customers/:userId/approve` · `/acknowledge` | – | `OwnerB2bDetailView`; 409 `INVALID_FROM_STATE`, 404 unknown user (§2.3a) |
+| POST | `/api/owner/customers/:userId/reject` · `/revoke` | `OwnerB2bReasonRequest { reason }` | `OwnerB2bDetailView`; 409 `INVALID_FROM_STATE`, 404 unknown user (§2.3a) |
 
 ```ts
 export interface QuotaStatus {
