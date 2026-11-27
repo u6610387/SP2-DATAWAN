@@ -32,7 +32,11 @@ describe('B2bApplyRequest', () => {
     expect(r.success).toBe(true);
     if (r.success) expect(r.data.businessName).toBe('ร้านทดสอบ');
   });
+  it('accepts an in-Thailand lat/lng pair', () => {
+    expect(B2bApplyRequest.safeParse({ ...valid, lat: 13.72, lng: 100.48 }).success).toBe(true);
+  });
   it.each([
+    ['lat without lng', { lat: 13.72, lng: null }],
     ['blank name', { businessName: '   ' }],
     ['no consent', { pdpaConsent: false }],
     ['lat outside Thailand', { lat: 40, lng: 100 }],

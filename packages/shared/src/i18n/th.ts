@@ -1,5 +1,5 @@
 /** Customer- and owner-facing Thai strings. Keep copy here, not inline in handlers. */
-import type { OrderStatus } from '../db';
+import type { B2bStatus, OrderStatus } from '../db';
 
 export const th = {
   b2bAccountLink: (url: string) => `สมัคร/ดูสถานะบัญชีร้านค้า B2B ได้ที่ลิงก์นี้ค่ะ 👉 ${url}`,
@@ -7,7 +7,8 @@ export const th = {
     PENDING_VERIFICATION: 'รอร้านตรวจสอบ',
     VERIFIED: 'ยืนยันแล้ว',
     REJECTED: 'ไม่ผ่าน',
-  } as Record<string, string>,
+  } as Record<B2bStatus, string>,
+  b2bStatusLine: (status: B2bStatus) => `สถานะ: ${th.b2bStatusLabel[status]}`,
   welcome: 'สวัสดีค่ะ ดาทะวันซีฟู้ดยินดีต้อนรับ 🦐 พิมพ์สั่งของได้เลย เช่น "กุ้งแม่น้ำ 2 โล ส่งพรุ่งนี้เช้า"',
   orderReceivedChecking: 'รับออเดอร์แล้วค่ะ ร้านกำลังตรวจสอบรายการให้นะคะ',
   confirmTitle: (code: string) => `สรุปออเดอร์ ${code}`,

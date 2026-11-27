@@ -150,8 +150,7 @@ export const ProductUpdateRequest = z
   .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'nothing to update' });
 export type ProductUpdateRequest = z.infer<typeof ProductUpdateRequest>;
 
-
-// ---- B2B account (docs/API_AND_AI_CONTRACTS.md §2.4) ----
+// ---- B2B account (docs/API_AND_AI_CONTRACTS.md §2.3a) ----
 const DELIVERY_WINDOW_RE = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
 
 export const B2bApplyRequest = z
