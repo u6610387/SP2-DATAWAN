@@ -8,7 +8,7 @@
  * (`updateBusinessProfile` returns null when it no longer matches), so a double-click or a race
  * yields INVALID_FROM_STATE and no second audit row.
  */
-import type { B2bApplyRequest, BusinessProfileRow, UserRow } from '@datawan/shared';
+import type { B2bApplyRequest, BusinessDocumentRow, BusinessProfileRow, UserRow } from '@datawan/shared';
 import type { Deps } from '../deps';
 import { splitPath } from './storage';
 
@@ -52,7 +52,13 @@ function changedSensitiveFields(profile: BusinessProfileRow, fields: ReturnType<
 
 export async function applyB2b(deps: Deps, user: UserRow, input: B2bApplyInput): Promise<B2bResult> {
   const existing = await deps.repo.getBusinessProfile(user.id);
-  const docs = await deps.repo.listBusinessDocuments(user.id);
+  let docs = await deps.repo.listBusinessDocuments(user.id);
+  if (existing?.status === 'REJECTED' && docs.length) {
+    // The rejected application's documents are done with: delete them now, so the new
+    // application starts from zero (re-sent old paths count as new uploads).
+    await purgeDocuments(deps, docs);
+    docs = [];
+  }
   const known = new Set(docs.map((d) => d.path));
   const newPaths = [...new Set(input.documentPaths)].filter((p) => !known.has(p));
   if (docs.length + newPaths.length > MAX_DOCUMENTS) return fail('TOO_MANY_DOCUMENTS');
@@ -83,7 +89,9 @@ export async function applyB2b(deps: Deps, user: UserRow, input: B2bApplyInput):
     event = { event: 'B2B_UPDATED', payload: {} };
   } else {
     // VERIFIED: the users row keeps the owner-approved business name until acknowledged;
-    // only the delivery window (not sensitive) follows the profile immediately.
+    // only the delivery window (not sensitive) follows the profile immediately. A customer
+    // edit never writes user_type: the conditional update is a no-op if the owner revoked
+    // the shop in the meantime (CLAUDE.md §3.1).
     const changed = changedSensitiveFields(existing, fields);
     if (changed.length) {
       const rereviewFields = [...new Set([...existing.rereview_fields, ...changed])];
@@ -95,7 +103,7 @@ export async function applyB2b(deps: Deps, user: UserRow, input: B2bApplyInput):
       event = { event: 'B2B_UPDATED', payload: {} };
     }
     if (profile) {
-      await deps.repo.setUserB2B(user.id, { user_type: 'B2B', business_name: user.business_name, default_delivery_window: fields.default_delivery_window });
+      await deps.repo.updateUserB2bDetails(user.id, { default_delivery_window: fields.default_delivery_window });
     }
   }
   if (!profile) return invalid();
@@ -155,7 +163,8 @@ export async function acknowledgeB2b(deps: Deps, userId: string, ownerId: string
     decided_by: ownerId,
   });
   if (!profile) return invalid();
-  await deps.repo.setUserB2B(userId, { user_type: 'B2B', business_name: profile.business_name, default_delivery_window: profile.default_delivery_window });
+  // Conditional on user_type = 'B2B': a racing revoke stays revoked.
+  await deps.repo.updateUserB2bDetails(userId, { business_name: profile.business_name, default_delivery_window: profile.default_delivery_window });
   await deps.repo.insertUserEvent({ user_id: userId, actor: 'owner', event: 'B2B_ACKNOWLEDGED', payload: { fields: existing.rereview_fields } });
   return { ok: true, profile };
 }
@@ -186,7 +195,13 @@ export async function revokeB2b(deps: Deps, userId: string, ownerId: string, rea
 export async function purgeDecidedDocuments(deps: Deps): Promise<number> {
   const cutoffIso = new Date(deps.now().getTime() - B2B_DOC_RETENTION_DAYS * 86_400_000).toISOString();
   const docs = await deps.repo.listDocsDueForPurge(cutoffIso);
-  if (!docs.length) return 0;
+  await purgeDocuments(deps, docs);
+  return docs.length;
+}
+
+/** Storage objects first, then rows, then one B2B_DOCS_PURGED {count} (actor system) per user. */
+async function purgeDocuments(deps: Deps, docs: BusinessDocumentRow[]): Promise<void> {
+  if (!docs.length) return;
   await deps.storage.remove('business-docs', docs.map((d) => splitPath(d.path).key));
   await deps.repo.deleteBusinessDocuments(docs.map((d) => d.id));
   const perUser = new Map<string, number>();
@@ -194,5 +209,4 @@ export async function purgeDecidedDocuments(deps: Deps): Promise<number> {
   for (const [userId, count] of perUser) {
     await deps.repo.insertUserEvent({ user_id: userId, actor: 'system', event: 'B2B_DOCS_PURGED', payload: { count } });
   }
-  return docs.length;
 }

@@ -271,6 +271,12 @@ export class SupabaseRepo implements Repo {
   async setUserB2B(userId: string, patch: { user_type: 'B2C' | 'B2B'; business_name: string | null; default_delivery_window: string | null }) {
     return must(await this.db.from('users').update(patch).eq('id', userId).select('*').single(), 'setUserB2B');
   }
+  async updateUserB2bDetails(userId: string, patch: { business_name?: string; default_delivery_window?: string | null }) {
+    return must(
+      await this.db.from('users').update(patch).eq('id', userId).eq('user_type', 'B2B').select().maybeSingle(),
+      'updateUserB2bDetails',
+    );
+  }
   async insertUserEvent(e: { user_id: string; actor: import('@datawan/shared').EventActor; event: import('@datawan/shared').UserEventName; payload?: Record<string, unknown> }) {
     return must(await this.db.from('user_events').insert({ ...e, payload: e.payload ?? null }).select('*').single(), 'insertUserEvent');
   }

@@ -65,6 +65,16 @@ describe('B2B repo (memory)', () => {
     expect((await repo.listBusinessDocuments('a')).map((d) => d.id)).toEqual([fresh!.id]);
   });
 
+  it('updateUserB2bDetails only touches B2B users and never user_type', async () => {
+    const repo = new MemoryRepo();
+    const u = await repo.upsertUserByLineId('Utestb2bdetails00000000000000000');
+    expect(await repo.updateUserB2bDetails(u.id, { default_delivery_window: '06:00-08:00' })).toBeNull();
+    expect((await repo.getUser(u.id))?.default_delivery_window).toBeNull();
+    await repo.setUserB2B(u.id, { user_type: 'B2B', business_name: 'Test Kitchen', default_delivery_window: null });
+    const out = await repo.updateUserB2bDetails(u.id, { business_name: 'Test Kitchen 2', default_delivery_window: '07:00-09:00' });
+    expect([out?.user_type, out?.business_name, out?.default_delivery_window]).toEqual(['B2B', 'Test Kitchen 2', '07:00-09:00']);
+  });
+
   it('setUserB2B updates the user; user events list ascending', async () => {
     const repo = new MemoryRepo();
     const u = await repo.upsertUserByLineId('Utest');

@@ -243,6 +243,69 @@ describe('B2B service — owner decisions', () => {
   });
 });
 
+describe('B2B service — races with an owner revoke (§3.1)', () => {
+  /** Runs revokeB2b right after the next guarded update from VERIFIED that keeps the status. */
+  function revokeAfterNextVerifiedUpdate(s: Awaited<ReturnType<typeof verified>>) {
+    const real = s.repo.updateBusinessProfile.bind(s.repo);
+    let fired = false;
+    s.repo.updateBusinessProfile = async (userId, expected, patch) => {
+      const out = await real(userId, expected, patch);
+      if (!fired && out && expected === 'VERIFIED' && patch.status === undefined) {
+        fired = true;
+        s.repo.updateBusinessProfile = real;
+        expect((await revokeB2b(s.deps, UID, OWNER_AUTH, REASON)).ok).toBe(true);
+      }
+      return out;
+    };
+  }
+
+  it('a customer edit racing a revoke leaves the user B2C', async () => {
+    const s = await verified();
+    revokeAfterNextVerifiedUpdate(s);
+    const r = await applyB2b(s.deps, await s.fresh(), input({ deliveryWindow: '07:00-10:00' }));
+    expect(r.ok).toBe(true);
+    const u = await s.fresh();
+    expect([u.user_type, u.business_name, u.default_delivery_window]).toEqual(['B2C', null, null]);
+    expect((await s.repo.getBusinessProfile(UID))?.status).toBe('REJECTED');
+  });
+
+  it('an acknowledge racing a revoke leaves the user B2C', async () => {
+    const s = await verified();
+    await applyB2b(s.deps, await s.fresh(), input({ businessName: NEW_NAME }));
+    revokeAfterNextVerifiedUpdate(s);
+    const r = await acknowledgeB2b(s.deps, UID, OWNER_AUTH);
+    expect(r.ok).toBe(true);
+    const u = await s.fresh();
+    expect([u.user_type, u.business_name, u.default_delivery_window]).toEqual(['B2C', null, null]);
+  });
+});
+
+describe('B2B service — re-apply after REJECTED', () => {
+  it('purges the rejected application\'s documents before counting new ones', async () => {
+    const s = await setup();
+    const storage = s.deps.storage as MemoryStorage;
+    for (const n of [1, 2, 3]) await storage.upload('business-docs', doc(n).slice('business-docs/'.length), new Uint8Array([n]), 'image/jpeg');
+    await applyB2b(s.deps, s.user, input({ documentPaths: [doc(1), doc(2), doc(3)] }));
+    await rejectB2b(s.deps, UID, OWNER_AUTH, REASON);
+    await storage.upload('business-docs', doc(4).slice('business-docs/'.length), new Uint8Array([4]), 'image/jpeg');
+
+    const r = await applyB2b(s.deps, s.user, input({ documentPaths: [doc(4)] }));
+    expect(r.ok && r.profile.status).toBe('PENDING_VERIFICATION');
+    expect((await s.repo.listBusinessDocuments(UID)).map((d) => d.path)).toEqual([doc(4)]);
+    expect([...storage.objects.keys()]).toEqual([doc(4)]);
+    const purged = (await s.repo.listUserEvents(UID)).filter((e) => e.event === 'B2B_DOCS_PURGED');
+    expect(purged).toMatchObject([{ actor: 'system', payload: { count: 3 } }]);
+  });
+
+  it('re-apply after REJECTED with no documents on file writes no purge event', async () => {
+    const s = await setup();
+    await applyB2b(s.deps, s.user, input());
+    await rejectB2b(s.deps, UID, OWNER_AUTH, REASON);
+    await applyB2b(s.deps, s.user, input());
+    expect(await s.events()).toEqual(['B2B_APPLIED', 'B2B_REJECTED', 'B2B_APPLIED']);
+  });
+});
+
 describe('B2B service — audit PII guard', () => {
   it('user_events never contain business name, Tax ID, address or reason text', async () => {
     const s = await setup();

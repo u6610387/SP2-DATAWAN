@@ -387,6 +387,12 @@ export class MemoryRepo implements Repo {
     Object.assign(u, patch, { updated_at: this.ts() });
     return { ...u };
   }
+  async updateUserB2bDetails(userId: string, patch: { business_name?: string; default_delivery_window?: string | null }) {
+    const u = this.users.find((x) => x.id === userId);
+    if (!u || u.user_type !== 'B2B') return null;
+    Object.assign(u, patch, { updated_at: this.ts() });
+    return { ...u };
+  }
   async insertUserEvent(e: { user_id: string; actor: import('@datawan/shared').EventActor; event: import('@datawan/shared').UserEventName; payload?: Record<string, unknown> }) {
     const r = { id: this.id(), created_at: this.ts(), user_id: e.user_id, actor: e.actor, event: e.event, payload: e.payload ?? null };
     this.userEvents.push(r);

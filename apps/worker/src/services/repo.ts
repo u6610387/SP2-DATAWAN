@@ -150,6 +150,8 @@ export interface Repo {
   /** 'pending' = PENDING_VERIFICATION or needs_rereview; 'b2b' = VERIFIED; newest submission first. */
   listBusinessProfiles(filter: 'pending' | 'b2b' | 'all'): Promise<BusinessProfileRow[]>;
   setUserB2B(userId: string, patch: { user_type: 'B2C' | 'B2B'; business_name: string | null; default_delivery_window: string | null }): Promise<UserRow>;
+  /** Conditional update (where id and user_type = 'B2B'); null when the user is no longer B2B. Never writes user_type. */
+  updateUserB2bDetails(userId: string, patch: { business_name?: string; default_delivery_window?: string | null }): Promise<UserRow | null>;
   insertUserEvent(e: { user_id: string; actor: EventActor; event: UserEventName; payload?: Record<string, unknown> }): Promise<UserEventRow>;
   /** All account events of one user, oldest first. */
   listUserEvents(userId: string): Promise<UserEventRow[]>;
