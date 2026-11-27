@@ -229,6 +229,16 @@ export interface Dictionary {
     typeB2c: string;
     typeB2b: string;
     /** "ลูกค้าทั่วไป" tab: status card instead of a blank area. */
+    /** Why submit is disabled (missingRequirements). */
+    hints: {
+      title: string;
+      businessName: string;
+      address: string;
+      addressShort: string;
+      taxIdLength: (digits: number) => string;
+      deliveryWindow: string;
+      consent: string;
+    };
     generalTitle: string;
     generalOrderNote: string;
     generalPinNote: string;
