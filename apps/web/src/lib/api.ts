@@ -3,7 +3,7 @@
  * When NEXT_PUBLIC_USE_MOCKS=true, requests are served from src/mocks instead of the network —
  * lets the dashboard/LIFF UI be exercised in Chrome with no Worker/Supabase/LINE running.
  */
-import type { ApiError } from '@datawan/shared';
+import type { ApiError, B2bApplyRequest, CustomerAccountView } from '@datawan/shared';
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8787';
 const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === 'true';
@@ -58,4 +58,19 @@ export function liffFetch<T>(path: string, auth: { idToken?: string | null; devU
   if (auth.idToken) headers.Authorization = `Bearer ${auth.idToken}`;
   if (auth.devUser) headers['x-liff-dev-user'] = auth.devUser;
   return apiFetch<T>(path, { ...opts, headers });
+}
+
+// ---- LIFF B2B account (docs/API_AND_AI_CONTRACTS.md §2.3a) ----
+type LiffAuth = { idToken?: string | null; devUser?: string | null };
+
+export function getAccount(auth: LiffAuth): Promise<CustomerAccountView> {
+  return liffFetch<CustomerAccountView>('/api/liff/account', auth);
+}
+
+export function getB2bDocUploadUrl(auth: LiffAuth, contentType: 'image/jpeg' | 'image/png' | 'image/webp'): Promise<{ uploadUrl: string; path: string }> {
+  return liffFetch<{ uploadUrl: string; path: string }>('/api/liff/account/b2b/doc-upload-url', auth, { method: 'POST', body: { contentType } });
+}
+
+export function applyB2b(auth: LiffAuth, body: B2bApplyRequest): Promise<CustomerAccountView> {
+  return liffFetch<CustomerAccountView>('/api/liff/account/b2b', auth, { method: 'POST', body });
 }

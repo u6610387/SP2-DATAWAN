@@ -144,6 +144,13 @@ export async function mockFetch<T>(path: string, opts: RequestOptions): Promise<
     return o as unknown as T;
   }
 
+  if (path === '/api/liff/account') return { type: 'B2C', b2b: null } as T;
+  if (path === '/api/liff/account/b2b/doc-upload-url') return { uploadUrl: 'about:blank', path: 'business-docs/mock/mock.jpeg' } as T;
+  if (path === '/api/liff/account/b2b') {
+    const b = body as Record<string, unknown>;
+    return { type: 'B2C', b2b: { status: 'PENDING_VERIFICATION', businessName: String(b.businessName), businessType: b.businessType, addressText: String(b.addressText), lat: b.lat ?? null, lng: b.lng ?? null, deliveryWindow: b.deliveryWindow ?? null, taxId: b.taxId ?? null, rejectionReason: null, needsRereview: false, documents: [] } } as T;
+  }
+
   const liffOrderMatch = /^\/api\/liff\/orders\/([^/]+)(\/.*)?$/.exec(path);
   if (liffOrderMatch) {
     const o = findOrder(liffOrderMatch[1]!);
