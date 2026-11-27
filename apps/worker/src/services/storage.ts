@@ -21,10 +21,31 @@ export interface ImageStorage {
   remove(bucket: Bucket, keys: string[]): Promise<void>;
   /** Delete objects older than `days`; returns count deleted. */
   deleteOlderThan(bucket: Bucket, days: number, now: Date): Promise<number>;
+  /** Keys (within the bucket, e.g. '<userId>/<uuid>.jpeg') of objects older than `days`. */
+  listOlderThan(bucket: Bucket, days: number, now: Date): Promise<string[]>;
 }
 
 export function createSupabaseStorage(supabaseUrl: string, serviceRoleKey: string, fetchImpl: typeof fetch = fetch): ImageStorage {
   const headers = { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` };
+  const list = async (bucket: Bucket, prefix: string) => {
+    const res = await fetchImpl(`${supabaseUrl}/storage/v1/object/list/${bucket}`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefix, limit: 1000, offset: 0, sortBy: { column: 'created_at', order: 'asc' } }),
+    });
+    if (!res.ok) throw new Error(`storage list failed: ${res.status}`);
+    return (await res.json()) as { name: string; id: string | null; created_at: string | null }[];
+  };
+  /** Objects are stored as <folder>/<file>: list top-level folders, then files; yields per-folder keys older than the cutoff. */
+  async function* oldKeysByFolder(bucket: Bucket, days: number, now: Date): AsyncGenerator<string[]> {
+    const cutoff = now.getTime() - days * 86_400_000;
+    for (const folder of await list(bucket, '')) {
+      const prefix = folder.id === null ? `${folder.name}/` : '';
+      const files = folder.id === null ? await list(bucket, prefix) : [folder];
+      const old = files.filter((f) => f.id !== null && f.created_at && Date.parse(f.created_at) < cutoff).map((f) => `${prefix}${f.name}`);
+      if (old.length) yield old;
+    }
+  }
   return {
     async upload(bucket, key, bytes, contentType) {
       const res = await fetchImpl(`${supabaseUrl}/storage/v1/object/${bucket}/${key}`, {
@@ -71,23 +92,8 @@ export function createSupabaseStorage(supabaseUrl: string, serviceRoleKey: strin
       if (!res.ok) throw new Error(`storage remove failed: ${res.status} ${await res.text()}`);
     },
     async deleteOlderThan(bucket, days, now) {
-      const cutoff = now.getTime() - days * 86_400_000;
       let deleted = 0;
-      // Objects are stored as <orderId>/<file>; list top-level folders, then files.
-      const list = async (prefix: string) => {
-        const res = await fetchImpl(`${supabaseUrl}/storage/v1/object/list/${bucket}`, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prefix, limit: 1000, offset: 0, sortBy: { column: 'created_at', order: 'asc' } }),
-        });
-        if (!res.ok) throw new Error(`storage list failed: ${res.status}`);
-        return (await res.json()) as { name: string; id: string | null; created_at: string | null }[];
-      };
-      for (const folder of await list('')) {
-        const prefix = folder.id === null ? `${folder.name}/` : '';
-        const files = folder.id === null ? await list(prefix) : [folder];
-        const old = files.filter((f) => f.id !== null && f.created_at && Date.parse(f.created_at) < cutoff).map((f) => `${prefix}${f.name}`);
-        if (!old.length) continue;
+      for await (const old of oldKeysByFolder(bucket, days, now)) {
         const res = await fetchImpl(`${supabaseUrl}/storage/v1/object/${bucket}`, {
           method: 'DELETE',
           headers: { ...headers, 'Content-Type': 'application/json' },
@@ -96,6 +102,11 @@ export function createSupabaseStorage(supabaseUrl: string, serviceRoleKey: strin
         if (res.ok) deleted += old.length;
       }
       return deleted;
+    },
+    async listOlderThan(bucket, days, now) {
+      const keys: string[] = [];
+      for await (const old of oldKeysByFolder(bucket, days, now)) keys.push(...old);
+      return keys;
     },
   };
 }
@@ -125,5 +136,11 @@ export class MemoryStorage implements ImageStorage {
     let n = 0;
     for (const [k, v] of this.objects) if (v.at < now.getTime() - days * 86_400_000) { this.objects.delete(k); n++; }
     return n;
+  }
+  async listOlderThan(bucket: string, days: number, now: Date) {
+    const cutoff = now.getTime() - days * 86_400_000;
+    return [...this.objects]
+      .filter(([path, v]) => path.startsWith(`${bucket}/`) && v.at < cutoff)
+      .map(([path]) => path.slice(bucket.length + 1));
   }
 }

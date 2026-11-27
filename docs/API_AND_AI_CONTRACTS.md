@@ -193,7 +193,7 @@ Owner-only decisions (CLAUDE.md §3.1): approve / reject / acknowledge / revoke 
 |---|---|
 | `* * * * *` | Owner 15-min reminder; payment expiry; 24 h abandonment |
 | `*/10 * * * *` | Refresh LINE quota → `quota_logs`; set mode |
-| `0 20 * * *` (03:00 BKK) | Delete Storage images older than `STORAGE_RETENTION_DAYS` |
+| `0 20 * * *` (03:00 BKK) | Delete slip / bill images older than `STORAGE_RETENTION_DAYS`. Purge `business-docs` documents (object + row, `B2B_DOCS_PURGED { count }`) uploaded on or before the profile's `decided_at`, once that decision is older than 30 days (`B2B_DOC_RETENTION_DAYS`). Delete `business-docs` objects older than 1 day that have no `business_documents` row (abandoned uploads; counts only, nothing logged). |
 | `0 1 * * 1` | Supabase keep-alive query (risk D5) |
 
 ---

@@ -512,6 +512,8 @@ create table user_events (                  -- append-only audit log; payload = 
 - **Order code:** the Worker generates `code` as `A` + (`order_no` mod 1000), skipping codes still open; unique among open orders only, so codes stay short for LINE commands.
 - **Stock:** `product_stock` view sums the ledger. On `DELIVERED`, the Worker writes one `sale` row per item with `qty_delta = -(actual_qty ?? qty)` in the same transaction as the status change, `created_by` = owner.
 - **Retention:** daily cron lists objects older than `STORAGE_RETENTION_DAYS` (60) via the Storage API and deletes them; DB rows keep `slip_path` but the UI shows "รูปถูกลบตามนโยบาย 60 วัน". Use the Storage API, not `DELETE FROM storage.objects`, so files are actually removed.
+  - **B2B documents (`business-docs`):** the same daily cron deletes a document (object first, then row, then `B2B_DOCS_PURGED { count }`, actor `system`) 30 days after the owner's last decision (`B2B_DOC_RETENTION_DAYS`). It covers only documents uploaded on or before `business_profiles.decided_at`. A document a verified shop adds later triggers re-review, and the acknowledge moves `decided_at` past it. A re-application after `REJECTED` deletes the old documents at once.
+  - **Orphan sweep:** `business-docs` objects older than 1 day with no `business_documents` row are deleted. These are uploads whose application was never submitted. Only counts are kept, nothing is logged.
 - **Capacity check:** ~450 orders/month × ~5 rows each ≈ tiny; images compressed to ≤ 300 KB × ~600/month ≈ 180 MB rolling with 60-day cleanup → under 1 GB.
 
 ---

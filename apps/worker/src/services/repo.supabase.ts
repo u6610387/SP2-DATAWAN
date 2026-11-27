@@ -311,4 +311,17 @@ export class SupabaseRepo implements Repo {
     if (!ids.length) return;
     must(await this.db.from('business_documents').delete().in('id', ids), 'deleteBusinessDocuments');
   }
+  async existingBusinessDocumentPaths(paths: string[]) {
+    if (!paths.length) return [];
+    const found: string[] = [];
+    // Chunked: each path is ~80 characters in the query string.
+    for (let i = 0; i < paths.length; i += 100) {
+      const rows = must<{ path: string }[]>(
+        await this.db.from('business_documents').select('path').in('path', paths.slice(i, i + 100)),
+        'existingBusinessDocumentPaths',
+      );
+      found.push(...rows.map((r) => r.path));
+    }
+    return found;
+  }
 }

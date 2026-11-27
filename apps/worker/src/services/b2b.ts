@@ -205,6 +205,23 @@ export async function purgeDecidedDocuments(deps: Deps): Promise<number> {
   return docs.length;
 }
 
+/** An upload with no business_documents row this long after it was made is abandoned (Design §3.9). */
+export const B2B_ORPHAN_DOC_DAYS = 1;
+
+/**
+ * Deletes `business-docs` objects older than B2B_ORPHAN_DOC_DAYS that no business_documents row
+ * points at: uploads whose application was never submitted (closed LIFF, failed apply). Only
+ * counts are returned, nothing is logged. Returns the number of objects deleted.
+ */
+export async function sweepOrphanDocuments(deps: Deps): Promise<number> {
+  const keys = await deps.storage.listOlderThan('business-docs', B2B_ORPHAN_DOC_DAYS, deps.now());
+  if (!keys.length) return 0;
+  const known = new Set(await deps.repo.existingBusinessDocumentPaths(keys.map((k) => `business-docs/${k}`)));
+  const orphans = keys.filter((k) => !known.has(`business-docs/${k}`));
+  await deps.storage.remove('business-docs', orphans);
+  return orphans.length;
+}
+
 /** Storage objects first, then rows, then one B2B_DOCS_PURGED {count} (actor system) per user. */
 async function purgeDocuments(deps: Deps, docs: BusinessDocumentRow[]): Promise<void> {
   if (!docs.length) return;

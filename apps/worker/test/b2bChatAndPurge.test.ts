@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { UserRow } from '@datawan/shared';
 import { B2B_KEYWORD_RE } from '../src/handlers/customer';
 import { runImageCleanup } from '../src/jobs/cleanup';
-import { applyB2b, approveB2b, B2B_DOC_RETENTION_DAYS } from '../src/services/b2b';
-import type { MemoryStorage } from '../src/services/storage';
+import { applyB2b, approveB2b, B2B_DOC_RETENTION_DAYS, sweepOrphanDocuments } from '../src/services/b2b';
+import { createSupabaseStorage, type MemoryStorage } from '../src/services/storage';
 import { makeHarness, OWNER_AUTH } from './harness';
 
 const UID = 'u-customer';
@@ -87,5 +87,58 @@ describe('B2B document purge in the daily cleanup', () => {
     expect(await cleanup(h)).toBe(0);
     expect((h.deps.storage as MemoryStorage).objects.size).toBe(1);
     expect(await h.repo.listBusinessDocuments(UID)).toHaveLength(1);
+  });
+});
+
+describe('B2B orphan upload sweep in the daily cleanup (I2)', () => {
+  const put = (h: ReturnType<typeof makeHarness>, path: string, ageMinutes: number) =>
+    (h.deps.storage as MemoryStorage).objects.set(path, { bytes: new Uint8Array([1]), contentType: 'image/jpeg', at: h.clock.now().getTime() - ageMinutes * 60_000 });
+
+  it('deletes a business-docs object older than 1 day with no row; keeps a younger orphan and an object with a row', async () => {
+    const h = makeHarness();
+    put(h, docPath(1), 25 * 60); // orphan, 25 h old → deleted
+    put(h, docPath(2), 23 * 60); // orphan, 23 h old → kept (the customer may still submit)
+    put(h, docPath(3), 3 * 24 * 60); // 3 days old but has a row → kept
+    put(h, 'slips/o-1/00000000-0000-4000-8000-000000000009.jpeg', 25 * 60); // another bucket → not this sweep's business
+    await h.repo.insertBusinessDocuments([{ user_id: UID, path: docPath(3), content_type: 'image/jpeg' }]);
+    const log = vi.spyOn(console, 'log');
+
+    expect(await cleanup(h)).toBe(1);
+
+    const keys = [...(h.deps.storage as MemoryStorage).objects.keys()].sort();
+    expect(keys).toEqual([docPath(2), docPath(3), 'slips/o-1/00000000-0000-4000-8000-000000000009.jpeg'].sort());
+    expect(await h.repo.listBusinessDocuments(UID)).toHaveLength(1);
+    expect(log).not.toHaveBeenCalled();
+    log.mockRestore();
+  });
+
+  it('sweepOrphanDocuments is a no-op on an empty bucket', async () => {
+    const h = makeHarness();
+    expect(await sweepOrphanDocuments(h.deps)).toBe(0);
+  });
+
+  it('Supabase listOlderThan walks <userId>/ folders and returns only keys older than the cutoff', async () => {
+    const now = new Date('2026-11-27T00:00:00Z');
+    const old = '2026-11-25T00:00:00Z';
+    const fresh = '2026-11-26T12:00:00Z';
+    const bodies: unknown[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as { prefix: string };
+      bodies.push({ url: url.replace(/^.*\/storage\/v1/, ''), prefix: body.prefix });
+      const rows =
+        body.prefix === ''
+          ? [{ name: 'u-a', id: null, created_at: null }, { name: 'u-b', id: null, created_at: null }]
+          : body.prefix === 'u-a/'
+            ? [{ name: 'x.jpeg', id: '1', created_at: old }, { name: 'y.jpeg', id: '2', created_at: fresh }]
+            : [{ name: 'z.webp', id: '3', created_at: old }];
+      return new Response(JSON.stringify(rows), { status: 200 });
+    }) as unknown as typeof fetch;
+    const storage = createSupabaseStorage('https://fake.supabase.test', 'fake-key', fetchImpl);
+    expect(await storage.listOlderThan('business-docs', 1, now)).toEqual(['u-a/x.jpeg', 'u-b/z.webp']);
+    expect(bodies).toEqual([
+      { url: '/object/list/business-docs', prefix: '' },
+      { url: '/object/list/business-docs', prefix: 'u-a/' },
+      { url: '/object/list/business-docs', prefix: 'u-b/' },
+    ]);
   });
 });

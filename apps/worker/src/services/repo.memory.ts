@@ -428,6 +428,10 @@ export class MemoryRepo implements Repo {
   async deleteBusinessDocuments(ids: string[]) {
     this.businessDocuments = this.businessDocuments.filter((d) => !ids.includes(d.id));
   }
+  async existingBusinessDocumentPaths(paths: string[]) {
+    const known = new Set(this.businessDocuments.map((d) => d.path));
+    return paths.filter((p) => known.has(p));
+  }
 
   // ---- test helpers ----
   seedProducts(rows: (Omit<ProductRow, 'created_at' | 'updated_at' | 'is_active' | 'category_id'> & { category_id?: string | null })[]): void {

@@ -168,4 +168,6 @@ export interface Repo {
   /** Documents uploaded on/before the profile's decided_at, where decided_at < decidedBeforeIso. */
   listDocsDueForPurge(decidedBeforeIso: string): Promise<BusinessDocumentRow[]>;
   deleteBusinessDocuments(ids: string[]): Promise<void>;
+  /** The subset of `paths` that have a business_documents row. */
+  existingBusinessDocumentPaths(paths: string[]): Promise<string[]>;
 }
