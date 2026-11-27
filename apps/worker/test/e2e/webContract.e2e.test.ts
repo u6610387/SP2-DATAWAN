@@ -4,14 +4,17 @@
  *      (catches "documented and called but never implemented", like the owner cancel bug);
  *   2. every literal `body: { ... }` the web sends uses exactly the keys of the shared Zod
  *      request schema the worker validates with: no unknown keys, no missing required keys;
- *   3. every POST that changes an order sends `ifMatch: order.version`.
+ *   3. every POST that changes an order sends `ifMatch: order.version`;
+ *   4. each B2B account function in apps/web/src/lib/api.ts, called once against the worker, gets
+ *      a response that parses as its view type (no missing or unknown keys).
  * Run as part of the e2e-system-test skill.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import * as Contracts from '@datawan/shared';
-import type { ZodObject, ZodType } from 'zod';
-import { describe, expect, it } from 'vitest';
+import type { CustomerAccountView, OwnerB2bDetailView, OwnerB2bSummaryView } from '@datawan/shared';
+import { z, type ZodObject, type ZodType } from 'zod';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/app';
 import { makeHarness, LIFF_TOKEN, OWNER_TOKEN } from '../harness';
 
@@ -122,6 +125,11 @@ const BODY_SCHEMA: Record<string, keyof typeof Contracts> = {
   'POST /api/liff/orders/:param/recipient': 'RecipientContactRequest',
   'POST /api/liff/orders/:param/slip-upload-url': 'SlipUploadUrlRequest',
   'POST /api/liff/orders/:param/slip': 'SlipSubmitRequest',
+  'POST /api/liff/account/b2b/doc-upload-url': 'B2bDocUploadUrlRequest',
+  'POST /api/owner/customers/:param/approve': 'OwnerB2bDecisionRequest',
+  'POST /api/owner/customers/:param/acknowledge': 'OwnerB2bDecisionRequest',
+  'POST /api/owner/customers/:param/reject': 'OwnerB2bReasonRequest',
+  'POST /api/owner/customers/:param/revoke': 'OwnerB2bReasonRequest',
 };
 
 /** Order-changing calls that must carry `ifMatch: order.version`. */
@@ -176,5 +184,96 @@ describe('web ↔ worker payload contract (from apps/web source)', () => {
 
   it.each(calls.filter((c) => NEEDS_IF_MATCH.has(key(c))).map((c) => [key(c), c] as const))('%s sends ifMatch: order.version', (_k, c) => {
     expect(c.hasIfMatch, `${c.file}:${c.line}`).toBe(true);
+  });
+});
+
+// ---- 4. B2B account functions: real web client → real worker routes → response shape ----
+// Strict runtime mirrors of the shared view interfaces; `satisfies` keeps them in step with the types.
+const B2B_STATUS = z.enum(['PENDING_VERIFICATION', 'VERIFIED', 'REJECTED']);
+const BUSINESS_TYPE = z.enum(['restaurant', 'reseller', 'hotel', 'other']);
+const CustomerAccountViewSchema = z.strictObject({
+  type: z.enum(['B2C', 'B2B']),
+  b2b: z.strictObject({
+    status: B2B_STATUS, businessName: z.string(), businessType: BUSINESS_TYPE, addressText: z.string(),
+    lat: z.number().nullable(), lng: z.number().nullable(), deliveryWindow: z.string().nullable(), taxId: z.string().nullable(),
+    rejectionReason: z.string().nullable(), needsRereview: z.boolean(), documents: z.array(z.strictObject({ id: z.string() })),
+  }).nullable(),
+}) satisfies ZodType<CustomerAccountView>;
+const summaryShape = {
+  userId: z.string(), customerName: z.string().nullable(), businessName: z.string(), businessType: BUSINESS_TYPE,
+  status: B2B_STATUS, needsRereview: z.boolean(), submittedAt: z.string(),
+};
+const OwnerB2bSummaryViewSchema = z.strictObject(summaryShape) satisfies ZodType<OwnerB2bSummaryView>;
+const OwnerB2bDetailViewSchema = z.strictObject({
+  ...summaryShape,
+  phone: z.string().nullable(), addressText: z.string(), lat: z.number().nullable(), lng: z.number().nullable(),
+  mapUrl: z.string().nullable(), deliveryWindow: z.string().nullable(), taxId: z.string().nullable(),
+  taxIdValid: z.boolean().nullable(), rereviewFields: z.array(z.string()), rejectionReason: z.string().nullable(),
+  decidedAt: z.string().nullable(), verifiedAt: z.string().nullable(), updatedAt: z.string(),
+  documents: z.array(z.strictObject({ id: z.string(), url: z.string() })),
+}) satisfies ZodType<OwnerB2bDetailView>;
+const UploadUrlSchema = z.strictObject({ uploadUrl: z.string(), path: z.string() });
+
+describe('web B2B api.ts functions against the worker (response parses as its view type)', () => {
+  const API = 'http://worker.contract';
+  afterAll(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('getAccount, getB2bDocUploadUrl, applyB2b, list/get/approve/acknowledge/revoke/reject B2bCustomer', async () => {
+    const h = makeHarness();
+    const app = createApp(h.deps);
+    const called: string[] = [];
+    vi.stubEnv('NEXT_PUBLIC_API_BASE_URL', API);
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = new Request(input, init);
+      if (!req.url.startsWith(API)) throw new Error(`unexpected network call ${req.url}`);
+      const u = new URL(req.url);
+      const res = await app.request(u.pathname + u.search, { method: req.method, headers: req.headers, body: init?.body });
+      // Hono's default 404 for an unmatched route is plain text; handlers answer JSON.
+      if (res.status === 404 && !(res.headers.get('content-type') ?? '').includes('application/json')) {
+        throw new Error(`no worker route for ${req.method} ${u.pathname}`);
+      }
+      called.push(`${req.method} ${u.pathname}`);
+      return res;
+    });
+    const web = await import('../../../web/src/lib/api');
+    const liff = { idToken: LIFF_TOKEN, devUser: null };
+    const userId = 'u-customer'; // the harness's LIFF_TOKEN user
+    const body = (businessName: string, documentPaths: string[]) => ({
+      businessName, businessType: 'restaurant' as const, addressText: '1 ถนนทดสอบสัญญา', lat: null, lng: null,
+      deliveryWindow: null, taxId: '0105536000313', documentPaths, pdpaConsent: true as const,
+    });
+
+    CustomerAccountViewSchema.parse(await web.getAccount(liff));
+    const upload = UploadUrlSchema.parse(await web.getB2bDocUploadUrl(liff, 'image/png'));
+    CustomerAccountViewSchema.parse(await web.applyB2b(liff, body('ร้านทดสอบสัญญา', [upload.path])));
+    const list = z.array(OwnerB2bSummaryViewSchema).parse(await web.listB2bCustomers(OWNER_TOKEN, 'pending'));
+    expect(list.map((x) => x.userId)).toEqual([userId]);
+    const seen = OwnerB2bDetailViewSchema.parse(await web.getB2bCustomer(OWNER_TOKEN, userId));
+    const approved = OwnerB2bDetailViewSchema.parse(await web.approveB2bCustomer(OWNER_TOKEN, userId, seen.updatedAt));
+    expect(approved.status).toBe('VERIFIED');
+    // Each later decision sends the updatedAt the owner's (re-fetched) detail view would show.
+    const stamp = async () => (await h.repo.getBusinessProfile(userId))!.updated_at;
+    await web.applyB2b(liff, body('ร้านทดสอบสัญญา ใหม่', [upload.path])); // rename → needs re-review
+    OwnerB2bDetailViewSchema.parse(await web.acknowledgeB2bCustomer(OWNER_TOKEN, userId, await stamp()));
+    OwnerB2bDetailViewSchema.parse(await web.revokeB2bCustomer(OWNER_TOKEN, userId, 'ทดสอบ', await stamp()));
+    await web.applyB2b(liff, body('ร้านทดสอบสัญญา', [])); // re-apply after the revoke → pending again
+    expect(OwnerB2bDetailViewSchema.parse(await web.rejectB2bCustomer(OWNER_TOKEN, userId, 'ทดสอบ', await stamp())).status).toBe('REJECTED');
+
+    expect(called).toEqual([
+      'GET /api/liff/account',
+      'POST /api/liff/account/b2b/doc-upload-url',
+      'POST /api/liff/account/b2b',
+      'GET /api/owner/customers',
+      `GET /api/owner/customers/${userId}`,
+      `POST /api/owner/customers/${userId}/approve`,
+      'POST /api/liff/account/b2b',
+      `POST /api/owner/customers/${userId}/acknowledge`,
+      `POST /api/owner/customers/${userId}/revoke`,
+      'POST /api/liff/account/b2b',
+      `POST /api/owner/customers/${userId}/reject`,
+    ]);
   });
 });

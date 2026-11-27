@@ -22,6 +22,9 @@ export class MemoryRepo implements Repo {
   quotaLogs: import('@datawan/shared').QuotaLogRow[] = [];
   events: import('@datawan/shared').OrderEventRow[] = [];
   pushSubscriptions: PushSubscriptionRow[] = [];
+  businessProfiles: import('@datawan/shared').BusinessProfileRow[] = [];
+  businessDocuments: import('@datawan/shared').BusinessDocumentRow[] = [];
+  userEvents: import('@datawan/shared').UserEventRow[] = [];
   lineEvents = new Set<string>();
   private seq = 0;
   private tick = 0;
@@ -348,6 +351,86 @@ export class MemoryRepo implements Repo {
   }
   async countEventsSince(event: string, sinceIso: string) {
     return this.events.filter((e) => e.event === event && e.created_at >= sinceIso).length;
+  }
+
+  // ---- B2B verification ----
+  async getBusinessProfile(userId: string) {
+    const p = this.businessProfiles.find((x) => x.user_id === userId);
+    return p ? { ...p } : null;
+  }
+  async upsertBusinessProfile(p: Omit<import('@datawan/shared').BusinessProfileRow, 'created_at' | 'updated_at'>) {
+    const t = this.ts();
+    const i = this.businessProfiles.findIndex((x) => x.user_id === p.user_id);
+    if (i >= 0) {
+      this.businessProfiles[i] = { ...this.businessProfiles[i]!, ...p, updated_at: t };
+      return { ...this.businessProfiles[i]! };
+    }
+    const row = { ...p, created_at: t, updated_at: t };
+    this.businessProfiles.push(row);
+    return { ...row };
+  }
+  async updateBusinessProfile(
+    userId: string,
+    expectedStatus: import('@datawan/shared').B2bStatus,
+    patch: Partial<import('@datawan/shared').BusinessProfileRow>,
+    expectedUpdatedAt?: string,
+  ) {
+    const p = this.businessProfiles.find((x) => x.user_id === userId);
+    if (!p || p.status !== expectedStatus) return null;
+    if (expectedUpdatedAt !== undefined && p.updated_at !== expectedUpdatedAt) return null;
+    Object.assign(p, patch, { updated_at: this.ts() });
+    return { ...p };
+  }
+  async listBusinessProfiles(filter: 'pending' | 'b2b' | 'all') {
+    return this.businessProfiles
+      .filter((p) => (filter === 'pending' ? p.status === 'PENDING_VERIFICATION' || p.needs_rereview : filter === 'b2b' ? p.status === 'VERIFIED' : true))
+      .sort((a, b) => b.submitted_at.localeCompare(a.submitted_at))
+      .map((p) => ({ ...p }));
+  }
+  async setUserB2B(userId: string, patch: { user_type: 'B2C' | 'B2B'; business_name: string | null; default_delivery_window: string | null }) {
+    const u = this.users.find((x) => x.id === userId);
+    if (!u) throw new Error(`no user ${userId}`);
+    Object.assign(u, patch, { updated_at: this.ts() });
+    return { ...u };
+  }
+  async updateUserB2bDetails(userId: string, patch: { business_name?: string; default_delivery_window?: string | null }) {
+    const u = this.users.find((x) => x.id === userId);
+    if (!u || u.user_type !== 'B2B') return null;
+    Object.assign(u, patch, { updated_at: this.ts() });
+    return { ...u };
+  }
+  async insertUserEvent(e: { user_id: string; actor: import('@datawan/shared').EventActor; event: import('@datawan/shared').UserEventName; payload?: Record<string, unknown> }) {
+    const r = { id: this.id(), created_at: this.ts(), user_id: e.user_id, actor: e.actor, event: e.event, payload: e.payload ?? null };
+    this.userEvents.push(r);
+    return { ...r };
+  }
+  async listUserEvents(userId: string) {
+    return this.userEvents.filter((e) => e.user_id === userId).map((e) => ({ ...e }));
+  }
+  async insertBusinessDocuments(rows: { user_id: string; path: string; content_type: string }[]) {
+    return rows.map((r) => {
+      const d = { id: this.id(), uploaded_at: this.ts(), ...r };
+      this.businessDocuments.push(d);
+      return { ...d };
+    });
+  }
+  async listBusinessDocuments(userId: string) {
+    return this.businessDocuments.filter((d) => d.user_id === userId).map((d) => ({ ...d }));
+  }
+  async listDocsDueForPurge(decidedBeforeIso: string) {
+    return this.businessDocuments
+      .filter((d) => {
+        const p = this.businessProfiles.find((x) => x.user_id === d.user_id);
+        return !!p?.decided_at && p.decided_at < decidedBeforeIso && d.uploaded_at <= p.decided_at;
+      })
+      .map((d) => ({ ...d }));
+  }
+  async deleteBusinessDocuments(ids: string[]) {
+    this.businessDocuments = this.businessDocuments.filter((d) => !ids.includes(d.id));
+  }
+  async existingBusinessDocumentPaths(paths: string[]) {
+    const known = new Set(this.businessDocuments.map((d) => d.path));
+    return paths.filter((p) => known.has(p));
   }
 
   // ---- test helpers ----

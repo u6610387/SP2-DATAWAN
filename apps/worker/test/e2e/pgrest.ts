@@ -74,34 +74,51 @@ function parseList(v: string): string[] {
   return m[1]! === '' ? [] : m[1]!.split(',').map((x) => x.replace(/^"(.*)"$/, '$1'));
 }
 
+/** One `<col>=<op>.<val>` condition (also used for each `col.op.val` part inside `or=(...)`). */
+function buildCondition(key: string, raw: string, args: unknown[]): string {
+  const col = ident(key);
+  let neg = false;
+  let v = raw;
+  if (v.startsWith('not.')) { neg = true; v = v.slice(4); }
+  const dot = v.indexOf('.');
+  const op = v.slice(0, dot);
+  const val = v.slice(dot + 1);
+  let clause: string;
+  if (op in OPS) {
+    args.push(val);
+    clause = `${col} ${OPS[op]} $${args.length}`;
+  } else if (op === 'in') {
+    args.push(parseList(val));
+    clause = `${col}::text = any($${args.length}::text[])`;
+  } else if (op === 'ilike') {
+    args.push(val.replace(/\*/g, '%'));
+    clause = `${col}::text ilike $${args.length}`;
+  } else if (op === 'is') {
+    if (!['null', 'true', 'false'].includes(val)) throw new Error(`pgrest shim: is.${val}`);
+    clause = `${col} is ${val}`;
+  } else {
+    throw new Error(`pgrest shim: unsupported filter ${key}=${raw}`);
+  }
+  return neg ? `not (${clause})` : clause;
+}
+
+/** `or=(a.eq.x,b.is.true)` -> `(<a> or <b>)`; only eq / is are allowed inside or. */
+function buildOr(raw: string, args: unknown[]): string {
+  const m = /^\((.+)\)$/.exec(raw);
+  if (!m) throw new Error(`pgrest shim: unsupported filter or=${raw}`);
+  const conds = m[1]!.split(',').map((part) => {
+    const [col, op] = part.split('.');
+    if (!col || (op !== 'eq' && op !== 'is')) throw new Error(`pgrest shim: unsupported filter or=${raw}`);
+    return buildCondition(col, part.slice(col.length + 1), args);
+  });
+  return `(${conds.join(' or ')})`;
+}
+
 function buildWhere(params: URLSearchParams, args: unknown[]): string {
   const parts: string[] = [];
   for (const [key, raw] of params) {
     if (RESERVED.has(key)) continue;
-    const col = ident(key);
-    let neg = false;
-    let v = raw;
-    if (v.startsWith('not.')) { neg = true; v = v.slice(4); }
-    const dot = v.indexOf('.');
-    const op = v.slice(0, dot);
-    const val = v.slice(dot + 1);
-    let clause: string;
-    if (op in OPS) {
-      args.push(val);
-      clause = `${col} ${OPS[op]} $${args.length}`;
-    } else if (op === 'in') {
-      args.push(parseList(val));
-      clause = `${col}::text = any($${args.length}::text[])`;
-    } else if (op === 'ilike') {
-      args.push(val.replace(/\*/g, '%'));
-      clause = `${col}::text ilike $${args.length}`;
-    } else if (op === 'is') {
-      if (!['null', 'true', 'false'].includes(val)) throw new Error(`pgrest shim: is.${val}`);
-      clause = `${col} is ${val}`;
-    } else {
-      throw new Error(`pgrest shim: unsupported filter ${key}=${raw}`);
-    }
-    parts.push(neg ? `not (${clause})` : clause);
+    parts.push(key === 'or' ? buildOr(raw, args) : buildCondition(key, raw, args));
   }
   return parts.length ? ` where ${parts.join(' and ')}` : '';
 }

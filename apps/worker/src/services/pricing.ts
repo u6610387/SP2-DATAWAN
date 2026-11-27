@@ -30,7 +30,9 @@ export async function suggestPrice(deps: Deps, order: Pick<OrderRow, 'user_id'>,
   const cost = known ? costs.reduce((a, c) => a + (c.cost_satang ?? 0), 0) : null;
   const user = await deps.repo.getUser(order.user_id);
   let anchor: number | null = null;
-  if (user?.user_type === 'B2B') {
+  // Both checks: a stale user_type alone must never leak the anchor (owner-verified status is the truth).
+  const profile = user?.user_type === 'B2B' ? await deps.repo.getBusinessProfile(user.id) : null;
+  if (user && profile?.status === 'VERIFIED') {
     const since = new Date(deps.now().getTime() - 30 * DAY).toISOString();
     let sum = 0;
     let all = items.length > 0;

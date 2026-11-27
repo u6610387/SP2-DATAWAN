@@ -6,7 +6,7 @@
 import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
 import {
-  RecipientContactRequest, CounterOfferRequest, SlipSubmitRequest, SlipUploadUrlRequest, type CustomerOrderView, type OrderRow, type UserRow } from '@datawan/shared';
+  RecipientContactRequest, CounterOfferRequest, B2bApplyRequest, B2bDocUploadUrlRequest, type CustomerAccountView, SlipSubmitRequest, SlipUploadUrlRequest, type CustomerOrderView, type OrderRow, type UserRow } from '@datawan/shared';
 import type { Deps } from '../deps';
 import type { Bindings } from '../env';
 import * as actions from '../services/orderActions';
@@ -14,7 +14,8 @@ import { setRecipient } from '../services/recipient';
 import { parseSlipQr } from '../services/slipQr';
 import { PAYABLE } from '../handlers/customer';
 import { splitPath } from '../services/storage';
-import { toCustomerOrderView } from '../services/views';
+import { applyB2b } from '../services/b2b';
+import { toCustomerAccountView, toCustomerOrderView } from '../services/views';
 import { apiError, checkIfMatch, conflictError, deliveryIncompleteError } from './respond';
 
 type Env = { Bindings: Bindings; Variables: { user: UserRow } };
@@ -39,6 +40,11 @@ export function isOwnSlipPath(path: string, orderId: string): boolean {
   return new RegExp(`^slips/${orderId.replace(/[^0-9a-f-]/gi, '')}/${UUID}\\.(jpeg|png|webp)$`, 'i').test(path);
 }
 
+/** Same shape /account/b2b/doc-upload-url issues: business-docs/<userId>/<uuid>.<jpeg|png|webp>. */
+export function isOwnBusinessDocPath(path: string, userId: string): boolean {
+  return new RegExp(`^business-docs/${userId.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}/${UUID}\\.(jpeg|png|webp)$`, 'i').test(path);
+}
+
 async function getOwnOrder(c: Context<Env>, deps: Deps): Promise<OrderRow | Response> {
   const order = await deps.repo.getOrder(c.req.param('id')!);
   if (!order || order.user_id !== c.get('user').id) return apiError(c, 'NOT_FOUND', 'order not found', 404);
@@ -53,6 +59,11 @@ async function buildCustomerView(deps: Deps, order: OrderRow): Promise<CustomerO
   ]);
   const address = order.address_id ? await deps.repo.getAddress(order.address_id) : null;
   return toCustomerOrderView({ order, items, products, negotiations, address, promptpayId: deps.cfg.PROMPTPAY_ID });
+}
+
+async function buildAccountView(deps: Deps, user: UserRow): Promise<CustomerAccountView> {
+  const [profile, documents] = await Promise.all([deps.repo.getBusinessProfile(user.id), deps.repo.listBusinessDocuments(user.id)]);
+  return toCustomerAccountView(user, profile, documents);
 }
 
 async function readJson(c: Context): Promise<unknown> {
@@ -149,6 +160,38 @@ export function createLiffRoutes(deps: Deps) {
     if (order instanceof Response) return order;
     await deps.repo.touchCustomerLastSeen(order.id, deps.now().toISOString());
     return c.body(null, 204);
+  });
+
+  app.get('/account', async (c) => c.json(await buildAccountView(deps, c.get('user'))));
+
+  app.post('/account/b2b/doc-upload-url', async (c) => {
+    const user = c.get('user');
+    const parsed = B2bDocUploadUrlRequest.safeParse(await readJson(c));
+    if (!parsed.success) return apiError(c, 'VALIDATION_FAILED', parsed.error.message, 400);
+    // A rejected application's documents are purged when the customer re-applies: not counted.
+    const profile = await deps.repo.getBusinessProfile(user.id);
+    if (profile?.status !== 'REJECTED' && (await deps.repo.listBusinessDocuments(user.id)).length >= 3) {
+      return apiError(c, 'TOO_MANY_DOCUMENTS', 'at most 3 documents', 409);
+    }
+    const key = `${user.id}/${crypto.randomUUID()}.${parsed.data.contentType.split('/')[1]}`;
+    return c.json(await deps.storage.createSignedUploadUrl('business-docs', key));
+  });
+
+  app.post('/account/b2b', async (c) => {
+    const user = c.get('user');
+    const parsed = B2bApplyRequest.safeParse(await readJson(c));
+    if (!parsed.success) return apiError(c, 'VALIDATION_FAILED', parsed.error.issues.map((i) => i.message).join('; '), 400);
+    // Only paths this user's own doc-upload-url could have issued, checked before Storage is touched.
+    if (!parsed.data.documentPaths.every((p) => isOwnBusinessDocPath(p, user.id))) {
+      return apiError(c, 'VALIDATION_FAILED', 'documentPaths must be your own uploads', 400);
+    }
+    const { pdpaConsent: _consent, ...input } = parsed.data;
+    const r = await applyB2b(deps, user, input);
+    if (!r.ok) {
+      if (r.reason === 'NOT_FOUND') return apiError(c, 'NOT_FOUND', 'account not found', 404);
+      return apiError(c, r.reason, r.reason === 'TOO_MANY_DOCUMENTS' ? 'at most 3 documents' : 'application cannot be changed in its current state', 409);
+    }
+    return c.json(await buildAccountView(deps, (await deps.repo.getUser(user.id)) ?? user));
   });
 
   return app;

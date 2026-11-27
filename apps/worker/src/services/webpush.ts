@@ -177,6 +177,10 @@ function toPushPayload(alert: OwnerAlert): { title: string; body: string } {
       return { title: 'โควต้า LINE push', body: `ใช้ไป ${alert.used}/${alert.limit} (${alert.mode})` };
     case 'NEEDS_REVIEW':
       return { title: `${alert.code} ต้องตรวจสอบ`, body: alert.reason };
+    case 'B2B_APPLICATION':
+      return { title: 'มีร้านค้าขอยืนยันตัวตน B2B', body: 'เปิดแท็บ ลูกค้า เพื่อตรวจสอบ' };
+    case 'B2B_REREVIEW':
+      return { title: 'ร้านค้า B2B แก้ไขข้อมูล รอตรวจ', body: 'เปิดแท็บ ลูกค้า เพื่อตรวจสอบ' };
   }
 }
 

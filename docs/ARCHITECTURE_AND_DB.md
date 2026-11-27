@@ -460,6 +460,50 @@ create policy owner_upload_bills on storage.objects
 -- Customer slip uploads: the Worker creates a signed upload URL (service role) after
 -- verifying the LIFF ID token and order ownership. Chat images are downloaded from
 -- LINE by the Worker and uploaded with the service role.
+
+-- ---------- 0007: owner-verified B2B customers ----------
+create type b2b_status as enum ('PENDING_VERIFICATION', 'VERIFIED', 'REJECTED');
+create type business_type as enum ('restaurant', 'reseller', 'hotel', 'other');
+
+create table business_profiles (            -- one per customer; the owner approves/rejects (never code/AI)
+  user_id uuid primary key references users(id) on delete cascade,
+  status b2b_status not null default 'PENDING_VERIFICATION',
+  business_name text not null check (char_length(business_name) between 1 and 100),
+  business_type business_type not null,
+  address_text text not null,
+  lat double precision, lng double precision,            -- both null or both set
+  default_delivery_window text,                          -- 'HH:MM-HH:MM'
+  tax_id text check (tax_id is null or tax_id ~ '^\d{13}$'),
+  submitted_at timestamptz not null default now(),
+  decided_at timestamptz, decided_by uuid,               -- owner's auth id, no FK
+  verified_at timestamptz,
+  rejection_reason text,                                 -- required when status = 'REJECTED'
+  needs_rereview boolean not null default false,
+  rereview_fields text[] not null default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()          -- set_updated_at() trigger
+);                                                       -- index (status, submitted_at)
+
+create table business_documents (           -- files in the private `business-docs` bucket
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  path text not null, content_type text not null,
+  uploaded_at timestamptz not null default now()
+);                                                       -- index (user_id)
+
+create table user_events (                  -- append-only audit log; payload = field names / reason codes, no PII
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  actor event_actor not null,
+  event text not null check (event in ('B2B_APPLIED','B2B_UPDATED','B2B_APPROVED','B2B_REJECTED',
+                                       'B2B_REREVIEW','B2B_ACKNOWLEDGED','B2B_REVOKED','B2B_DOCS_PURGED')),
+  payload jsonb,
+  created_at timestamptz not null default now()
+);                                                       -- index (user_id, created_at)
+
+-- RLS: owner_all on business_profiles / business_documents; owner_read on user_events;
+-- revoke update, delete on user_events from authenticated.
+-- Storage: bucket `business-docs` (private, 1 MB, jpeg/png/webp); owner_read_business_docs policy.
 ```
 
 ### 2.1 Notes on the schema
@@ -468,6 +512,8 @@ create policy owner_upload_bills on storage.objects
 - **Order code:** the Worker generates `code` as `A` + (`order_no` mod 1000), skipping codes still open; unique among open orders only, so codes stay short for LINE commands.
 - **Stock:** `product_stock` view sums the ledger. On `DELIVERED`, the Worker writes one `sale` row per item with `qty_delta = -(actual_qty ?? qty)` in the same transaction as the status change, `created_by` = owner.
 - **Retention:** daily cron lists objects older than `STORAGE_RETENTION_DAYS` (60) via the Storage API and deletes them; DB rows keep `slip_path` but the UI shows "รูปถูกลบตามนโยบาย 60 วัน". Use the Storage API, not `DELETE FROM storage.objects`, so files are actually removed.
+  - **B2B documents (`business-docs`):** the same daily cron deletes a document (object first, then row, then `B2B_DOCS_PURGED { count }`, actor `system`) 30 days after the owner's last decision (`B2B_DOC_RETENTION_DAYS`). It covers only documents uploaded on or before `business_profiles.decided_at`. A document a verified shop adds later triggers re-review, and the acknowledge moves `decided_at` past it. A re-application after `REJECTED` deletes the old documents at once.
+  - **Orphan sweep:** `business-docs` objects older than 1 day with no `business_documents` row are deleted. These are uploads whose application was never submitted. Only counts are kept, nothing is logged.
 - **Capacity check:** ~450 orders/month × ~5 rows each ≈ tiny; images compressed to ≤ 300 KB × ~600/month ≈ 180 MB rolling with 60-day cleanup → under 1 GB.
 
 ---

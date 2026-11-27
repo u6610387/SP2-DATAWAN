@@ -7,12 +7,18 @@ import {
   computeMargin,
   type AddressRow,
   type CustomerOrderView,
+  type CustomerAccountView,
+  type BusinessProfileRow,
+  type BusinessDocumentRow,
   type MarginColor,
   type NegotiationRow,
   type OrderItemRow,
   type OrderRow,
   type OrderItemView,
   type OwnerOrderView,
+  type OwnerB2bSummaryView,
+  type OwnerB2bDetailView,
+  isValidThaiTaxId,
   type PaymentCheckView,
   type PaymentRow,
   type ProductRow,
@@ -110,6 +116,7 @@ export function toPaymentCheckView(payment: PaymentRow | null, slipImageUrl: str
 
 export interface OwnerViewArgs extends CustomerViewArgs {
   user: UserRow;
+  b2bProfile: BusinessProfileRow | null;
   costSatang: number | null;
   suggestedPriceSatang: number | null;
   b2bAnchorPriceSatang: number | null;
@@ -132,6 +139,10 @@ export function toOwnerOrderView(args: OwnerViewArgs): OwnerOrderView {
       name: user.full_name ?? user.display_name,
       businessName: user.business_name,
       phone: user.phone,
+      b2b:
+        args.b2bProfile?.status === 'VERIFIED'
+          ? { businessName: user.business_name ?? args.b2bProfile.business_name, deliveryWindow: user.default_delivery_window }
+          : null,
     },
     rawOrderText: order.raw_order_text,
     costSatang: args.costSatang,
@@ -147,5 +158,58 @@ export function toOwnerOrderView(args: OwnerViewArgs): OwnerOrderView {
     needsOwnerReview: args.needsOwnerReview,
     pushCount: args.pushCount,
     trackingPush: args.trackingPush,
+  };
+}
+
+/** Account view for the LIFF: documents are ids only (never paths or URLs); the reason shows only when REJECTED. */
+export function toCustomerAccountView(user: UserRow, profile: BusinessProfileRow | null, documents: BusinessDocumentRow[]): CustomerAccountView {
+  return {
+    type: user.user_type,
+    b2b: profile && {
+      status: profile.status,
+      businessName: profile.business_name,
+      businessType: profile.business_type,
+      addressText: profile.address_text,
+      lat: profile.lat,
+      lng: profile.lng,
+      deliveryWindow: profile.default_delivery_window,
+      taxId: profile.tax_id,
+      rejectionReason: profile.status === 'REJECTED' ? profile.rejection_reason : null,
+      needsRereview: profile.needs_rereview,
+      documents: documents.map((d) => ({ id: d.id })),
+    },
+  };
+}
+
+export function toOwnerB2bSummaryView(profile: BusinessProfileRow, user: UserRow | null): OwnerB2bSummaryView {
+  return {
+    userId: profile.user_id,
+    customerName: user ? (user.full_name ?? user.display_name) : null,
+    businessName: profile.business_name,
+    businessType: profile.business_type,
+    status: profile.status,
+    needsRereview: profile.needs_rereview,
+    submittedAt: profile.submitted_at,
+  };
+}
+
+/** Owner review view. phone and taxId are owner-only data; taxIdValid is a checksum flag, never an approval. */
+export function toOwnerB2bDetailView(profile: BusinessProfileRow, user: UserRow | null, docs: { id: string; url: string }[]): OwnerB2bDetailView {
+  return {
+    ...toOwnerB2bSummaryView(profile, user),
+    phone: user?.phone ?? null,
+    addressText: profile.address_text,
+    lat: profile.lat,
+    lng: profile.lng,
+    mapUrl: mapUrl(profile.lat, profile.lng),
+    deliveryWindow: profile.default_delivery_window,
+    taxId: profile.tax_id,
+    taxIdValid: profile.tax_id ? isValidThaiTaxId(profile.tax_id) : null,
+    rereviewFields: profile.rereview_fields,
+    rejectionReason: profile.rejection_reason,
+    decidedAt: profile.decided_at,
+    verifiedAt: profile.verified_at,
+    updatedAt: profile.updated_at,
+    documents: docs,
   };
 }

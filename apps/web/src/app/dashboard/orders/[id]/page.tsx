@@ -10,6 +10,7 @@ import { SlipPaymentCard } from '@/components/SlipPaymentCard';
 import { trackingPushNotice } from '@/components/TrackingButton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { B2bBadge } from '@/components/B2bBadge';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ApiRequestError, ownerFetch } from '@/lib/api';
@@ -72,6 +73,10 @@ export default function OrderDetailPage() {
           <div>
             <div className="text-lg font-semibold">{order.code}</div>
             <div className="text-sm text-[var(--muted)]">{order.customer.name ?? order.customer.businessName ?? '-'}</div>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <B2bBadge b2b={order.customer.b2b} />
+              {order.customer.b2b?.deliveryWindow && <span className="text-xs text-[var(--muted)]">{t.customers.deliveryWindow}: {order.customer.b2b.deliveryWindow}</span>}
+            </div>
           </div>
           <Badge className="bg-black/5">{t.orderStatus[order.status]}</Badge>
         </div>

@@ -21,7 +21,7 @@ Purpose: let Thanadon (Worker), Thanakrit (AI) and Kitirat (Web/LIFF) build in p
 | Auth: owner | `Authorization: Bearer <Supabase access token>`; Worker verifies and requires `app_metadata.role = 'owner'` |
 
 ### 1.1 Error codes
-`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `VALIDATION_FAILED`, `ORDER_STATE_INVALID`, `VERSION_CONFLICT`, `QUOTA_SAVER_ACTIVE` (informational), `AI_UNAVAILABLE`, `AI_OUTPUT_INVALID`, `SLIP_REFERENCE_REUSED`, `INTERNAL`.
+`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `VALIDATION_FAILED`, `ORDER_STATE_INVALID`, `VERSION_CONFLICT`, `QUOTA_SAVER_ACTIVE` (informational), `AI_UNAVAILABLE`, `AI_OUTPUT_INVALID`, `SLIP_REFERENCE_REUSED`, `INVALID_FROM_STATE` and `TOO_MANY_DOCUMENTS` (B2B account, 409), `INTERNAL`.
 
 ---
 
@@ -72,7 +72,8 @@ export interface CustomerOrderView {
 
 /** What the owner dashboard sees. */
 export interface OwnerOrderView extends Omit<CustomerOrderView, 'realtime'> {
-  customer: { id: string; type: 'B2C' | 'B2B'; name: string | null; businessName: string | null; phone: string | null };
+  customer: { id: string; type: 'B2C' | 'B2B'; name: string | null; businessName: string | null; phone: string | null;
+    b2b: { businessName: string; deliveryWindow: string | null } | null };  // non-null only while the business profile is VERIFIED (badge)
   rawOrderText: string | null;
   costSatang: number | null;            // Σ item costs, null if unknown
   suggestedPriceSatang: number | null;  // cost-plus
@@ -114,6 +115,9 @@ export interface PaymentCheckView {
 | POST | `/api/liff/orders/:id/cancel` | `{ reason? }` | `CustomerOrderView` | Only before `PAYMENT_REVIEW` |
 | POST | `/api/liff/orders/:id/heartbeat` | – | `204` | Every 30 s while visible |
 | POST | `/api/liff/reorder` | `{ sourceOrderId, requestedDeliveryAt? }` | `CustomerOrderView` | B2B; new order in `AWAITING_CONFIRMATION` |
+| GET | `/api/liff/account` | – | `CustomerAccountView` | B2B account; see §2.3a |
+| POST | `/api/liff/account/b2b/doc-upload-url` | `B2bDocUploadUrlRequest { contentType }` | `{ uploadUrl, path }` | §2.3a; 409 `TOO_MANY_DOCUMENTS` at 3 un-purged documents |
+| POST | `/api/liff/account/b2b` | `B2bApplyRequest` (incl. `pdpaConsent: true`) | `CustomerAccountView` | §2.3a; 409 `TOO_MANY_DOCUMENTS` / `INVALID_FROM_STATE` |
 
 ### 2.3 Owner endpoints — owner: Thanadon, consumer: Kitirat
 
@@ -144,6 +148,10 @@ export interface PaymentCheckView {
 | GET | `/api/owner/price-history?productId=` | – | `{ points: {kind, unitPriceSatang, recordedAt}[] }` |
 | GET | `/api/owner/quota` | – | `QuotaStatus` |
 | POST | `/api/owner/push-subscriptions` | `PushSubscriptionJSON` | `204` |
+| GET | `/api/owner/customers?filter=pending\|b2b\|all` | – | `OwnerB2bSummaryView[]` (§2.3a) |
+| GET | `/api/owner/customers/:userId` | – | `OwnerB2bDetailView` (§2.3a) |
+| POST | `/api/owner/customers/:userId/approve` · `/acknowledge` | `OwnerB2bDecisionRequest { expectedUpdatedAt }` | `OwnerB2bDetailView`; 409 `INVALID_FROM_STATE` (wrong state or changed since the view), 404 unknown user (§2.3a) |
+| POST | `/api/owner/customers/:userId/reject` · `/revoke` | `OwnerB2bReasonRequest { reason, expectedUpdatedAt }` | `OwnerB2bDetailView`; 409 `INVALID_FROM_STATE` (wrong state or changed since the view), 404 unknown user (§2.3a) |
 
 ```ts
 export interface QuotaStatus {
@@ -157,13 +165,35 @@ export interface QuotaStatus {
 export interface BillFlag { lineIndex: number | null; kind: 'LINE_MATH' | 'TOTAL_MATH' | 'UNREADABLE' | 'NO_PRODUCT_MATCH'; detail: string }
 ```
 
+### 2.3a B2B account (owner-verified B2B customers)
+
+Owner-only decisions (CLAUDE.md §3.1): approve / reject / acknowledge / revoke each write a `user_events` row with `actor = 'owner'`. Business data is never sent to Gemini. Documents live in the private bucket `business-docs`; paths must match `business-docs/<userId>/<uuid>.(jpeg|png|webp)`.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/liff/account` | – | `CustomerAccountView` |
+| POST | `/api/liff/account/b2b/doc-upload-url` | `B2bDocUploadUrlRequest` | `{ path, uploadUrl }` |
+| POST | `/api/liff/account/b2b` | `B2bApplyRequest` | `CustomerAccountView` |
+| GET | `/api/owner/customers?filter=pending\|b2b\|all` | – | `OwnerB2bSummaryView[]` |
+| GET | `/api/owner/customers/:userId` | – | `OwnerB2bDetailView` (signed doc URLs, 300 s) |
+| POST | `/api/owner/customers/:userId/approve` | `OwnerB2bDecisionRequest` | `OwnerB2bDetailView` |
+| POST | `/api/owner/customers/:userId/reject` | `OwnerB2bReasonRequest` | `OwnerB2bDetailView` |
+| POST | `/api/owner/customers/:userId/acknowledge` | `OwnerB2bDecisionRequest` | `OwnerB2bDetailView` (clears `needsRereview`) |
+| POST | `/api/owner/customers/:userId/revoke` | `OwnerB2bReasonRequest` | `OwnerB2bDetailView` |
+
+**The owner decides on the data they saw.** `OwnerB2bDetailView.updatedAt` is the profile's `updated_at`. Every decision body carries it back as `expectedUpdatedAt` (`OwnerB2bDecisionRequest { expectedUpdatedAt }`; `OwnerB2bReasonRequest { reason, expectedUpdatedAt }`, reason trimmed 1–200). The worker matches it exactly, as stored, inside the guarded update. If the customer changed the application after the owner's view, the answer is 409 `INVALID_FROM_STATE`, nothing is decided and no audit row is written. The dashboard then refetches the detail. A missing `expectedUpdatedAt` is 400 `VALIDATION_FAILED`.
+
+**Re-review on a verified shop.** A change to `business_name` or `tax_id`, or **at least one new document** (a path not already on file), sets `needs_rereview` and adds the field (`business_name`, `tax_id`, `documents`) to `rereview_fields`. It writes `B2B_REREVIEW { fields }` and sends one `B2B_REREVIEW` Web Push, only when the flag goes from false to true. Acknowledging moves `decided_at`, so documents added during the re-review are covered by the 30-day purge from then on.
+
+`isValidThaiTaxId()` (`packages/shared/src/taxId.ts`) is a checksum flag (`taxIdValid`) only; it never approves. `OwnerOrderView.customer.b2b` is `{ businessName, deliveryWindow } | null`.
+
 ### 2.4 Scheduled jobs (Worker `scheduled()` handler; not HTTP)
 
 | Cron | Job |
 |---|---|
 | `* * * * *` | Owner 15-min reminder; payment expiry; 24 h abandonment |
 | `*/10 * * * *` | Refresh LINE quota → `quota_logs`; set mode |
-| `0 20 * * *` (03:00 BKK) | Delete Storage images older than `STORAGE_RETENTION_DAYS` |
+| `0 20 * * *` (03:00 BKK) | Delete slip / bill images older than `STORAGE_RETENTION_DAYS`. Purge `business-docs` documents (object + row, `B2B_DOCS_PURGED { count }`) uploaded on or before the profile's `decided_at`, once that decision is older than 30 days (`B2B_DOC_RETENTION_DAYS`). Delete `business-docs` objects older than 1 day that have no `business_documents` row (abandoned uploads; counts only, nothing logged). |
 | `0 1 * * 1` | Supabase keep-alive query (risk D5) |
 
 ---

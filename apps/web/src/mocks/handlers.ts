@@ -1,7 +1,7 @@
 /** Mock Worker API — path/method matching over the fixtures in ./data (NEXT_PUBLIC_USE_MOCKS=true). */
 import { computeMargin, type CustomerOrderView, type NegotiationView, type OwnerOrderView } from '@datawan/shared';
 import { ApiRequestError, type RequestOptions } from '../lib/api';
-import { mockCategories, mockOrders, mockQuota, mockStock, mockSummary } from './data';
+import { mockB2bCustomers, mockCategories, mockOrders, mockQuota, mockStock, mockSummary } from './data';
 
 function findOrder(id: string): OwnerOrderView {
   const o = mockOrders.find((x) => x.id === id);
@@ -142,6 +142,49 @@ export async function mockFetch<T>(path: string, opts: RequestOptions): Promise<
       o.latestPayment = null;
     }
     return o as unknown as T;
+  }
+
+  const [pathOnly, query] = path.split('?');
+  if (pathOnly === '/api/owner/customers' && method === 'GET') {
+    const filter = new URLSearchParams(query).get('filter') ?? 'all';
+    if (!['pending', 'b2b', 'all'].includes(filter)) throw new ApiRequestError(400, 'VALIDATION_FAILED', 'bad filter');
+    const rows = mockB2bCustomers.filter((c) => (filter === 'pending' ? c.status === 'PENDING_VERIFICATION' || c.needsRereview : filter === 'b2b' ? c.status === 'VERIFIED' : true));
+    return rows.map(({ userId, customerName, businessName, businessType, status, needsRereview, submittedAt }) => ({ userId, customerName, businessName, businessType, status, needsRereview, submittedAt })) as unknown as T;
+  }
+  const custMatch = /^\/api\/owner\/customers\/([^/]+)(?:\/(approve|reject|acknowledge|revoke))?$/.exec(pathOnly!);
+  if (custMatch) {
+    const c = mockB2bCustomers.find((x) => x.userId === custMatch[1]);
+    if (!c) throw new ApiRequestError(404, 'NOT_FOUND', 'customer not found');
+    const action = custMatch[2];
+    const now = new Date().toISOString();
+    // Same guard as the worker: a decision on a view the application has moved past is a 409.
+    if (action && body?.expectedUpdatedAt !== c.updatedAt) throw new ApiRequestError(409, 'INVALID_FROM_STATE', 'state changed');
+    if (action) c.updatedAt = now;
+    if (action === 'approve' || action === 'reject') {
+      if (c.status !== 'PENDING_VERIFICATION') throw new ApiRequestError(409, 'INVALID_FROM_STATE', 'state changed');
+      c.status = action === 'approve' ? 'VERIFIED' : 'REJECTED';
+      c.rejectionReason = action === 'reject' ? String(body?.reason ?? '') : null;
+      c.decidedAt = now;
+      c.verifiedAt = action === 'approve' ? now : null;
+    } else if (action === 'acknowledge') {
+      if (c.status !== 'VERIFIED' || !c.needsRereview) throw new ApiRequestError(409, 'INVALID_FROM_STATE', 'state changed');
+      c.needsRereview = false;
+      c.rereviewFields = [];
+    } else if (action === 'revoke') {
+      if (c.status !== 'VERIFIED') throw new ApiRequestError(409, 'INVALID_FROM_STATE', 'state changed');
+      c.status = 'REJECTED';
+      c.rejectionReason = String(body?.reason ?? '');
+      c.needsRereview = false;
+      c.decidedAt = now;
+    }
+    return { ...c } as unknown as T;
+  }
+
+  if (path === '/api/liff/account') return { type: 'B2C', b2b: null } as T;
+  if (path === '/api/liff/account/b2b/doc-upload-url') return { uploadUrl: 'about:blank', path: 'business-docs/mock/mock.jpeg' } as T;
+  if (path === '/api/liff/account/b2b') {
+    const b = body as Record<string, unknown>;
+    return { type: 'B2C', b2b: { status: 'PENDING_VERIFICATION', businessName: String(b.businessName), businessType: b.businessType, addressText: String(b.addressText), lat: b.lat ?? null, lng: b.lng ?? null, deliveryWindow: b.deliveryWindow ?? null, taxId: b.taxId ?? null, rejectionReason: null, needsRereview: false, documents: [] } } as T;
   }
 
   const liffOrderMatch = /^\/api\/liff\/orders\/([^/]+)(\/.*)?$/.exec(path);

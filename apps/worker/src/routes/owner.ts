@@ -18,6 +18,9 @@ import {
   DeliveredRequest,
   DispatchRequest,
   NegotiationRequest,
+  OwnerB2bDecisionRequest,
+  OwnerB2bReasonRequest,
+  type OwnerB2bDetailView,
   PushSubscriptionRequest,
   RejectSlipRequest,
   SetPriceRequest,
@@ -36,7 +39,8 @@ import { createCategory, createProduct, updateProduct } from '../services/catalo
 import { suggestPrice } from '../services/pricing';
 import { ownerCheckSlipQr } from '../services/slipQrCheck';
 import { splitPath } from '../services/storage';
-import { toOwnerOrderView } from '../services/views';
+import { toOwnerB2bDetailView, toOwnerB2bSummaryView, toOwnerOrderView } from '../services/views';
+import { acknowledgeB2b, approveB2b, rejectB2b, revokeB2b, type B2bResult } from '../services/b2b';
 import { startOfBangkokDay } from '../util/time';
 import { apiError, checkIfMatch, conflictError, deliveryIncompleteError } from './respond';
 
@@ -64,12 +68,13 @@ function requireOwner(deps: Deps) {
 }
 
 async function buildOwnerView(deps: Deps, order: OrderRow): Promise<OwnerOrderView> {
-  const [items, products, negotiations, user, payment] = await Promise.all([
+  const [items, products, negotiations, user, payment, b2bProfile] = await Promise.all([
     deps.repo.getItems(order.id),
     deps.repo.listActiveProducts(),
     deps.repo.listNegotiations(order.id),
     deps.repo.getUser(order.user_id),
     deps.repo.latestPayment(order.id),
+    deps.repo.getBusinessProfile(order.user_id),
   ]);
   if (!user) throw new Error(`order ${order.id} has no user`);
   const address = order.address_id ? await deps.repo.getAddress(order.address_id) : null;
@@ -88,6 +93,7 @@ async function buildOwnerView(deps: Deps, order: OrderRow): Promise<OwnerOrderVi
     negotiations,
     address,
     user,
+    b2bProfile,
     promptpayId: deps.cfg.PROMPTPAY_ID,
     costSatang: suggestion.costSatang,
     suggestedPriceSatang: suggestion.suggestedSatang,
@@ -98,6 +104,26 @@ async function buildOwnerView(deps: Deps, order: OrderRow): Promise<OwnerOrderVi
     pushCount: order.push_count,
     trackingPush,
   });
+}
+
+async function buildB2bDetail(deps: Deps, userId: string): Promise<OwnerB2bDetailView | null> {
+  const [profile, user, docRows] = await Promise.all([
+    deps.repo.getBusinessProfile(userId),
+    deps.repo.getUser(userId),
+    deps.repo.listBusinessDocuments(userId),
+  ]);
+  if (!profile) return null;
+  const docs: { id: string; url: string }[] = [];
+  for (const doc of docRows) {
+    try {
+      const { bucket, key } = splitPath(doc.path);
+      docs.push({ id: doc.id, url: await deps.storage.getSignedUrl(bucket, key, 300) });
+    } catch {
+      // A re-apply can leave a row whose object was purged: skip it, keep the review usable.
+      console.warn('[b2b] doc url failed', doc.id);
+    }
+  }
+  return toOwnerB2bDetailView(profile, user, docs);
 }
 
 async function readJson(c: Context): Promise<unknown> {
@@ -133,6 +159,54 @@ export function createOwnerRoutes(deps: Deps) {
       grossMarginSatang: productRevenueSatang - costSatang,
       openByStatus,
     });
+  });
+
+  app.get('/customers', async (c) => {
+    const filter = c.req.query('filter') ?? 'pending';
+    if (filter !== 'pending' && filter !== 'b2b' && filter !== 'all') return apiError(c, 'VALIDATION_FAILED', 'filter must be pending, b2b or all', 400);
+    const profiles = await deps.repo.listBusinessProfiles(filter);
+    const users = await Promise.all(profiles.map((p) => deps.repo.getUser(p.user_id)));
+    return c.json(profiles.map((p, i) => toOwnerB2bSummaryView(p, users[i] ?? null)));
+  });
+
+  app.get('/customers/:userId', async (c) => {
+    const view = await buildB2bDetail(deps, c.req.param('userId'));
+    return view ? c.json(view) : apiError(c, 'NOT_FOUND', 'customer not found', 404);
+  });
+
+  const b2bDecision = async (c: Context<Env>, run: (userId: string) => Promise<B2bResult>) => {
+    const userId = c.req.param('userId') ?? '';
+    const r = await run(userId);
+    if (!r.ok) {
+      return r.reason === 'NOT_FOUND'
+        ? apiError(c, 'NOT_FOUND', 'customer not found', 404)
+        : apiError(c, r.reason, 'application is not in a state that allows this decision', 409);
+    }
+    const view = await buildB2bDetail(deps, userId);
+    return view ? c.json(view) : apiError(c, 'NOT_FOUND', 'customer not found', 404);
+  };
+
+  // Every decision carries the profile updatedAt the owner's detail view showed (§3.1): a customer
+  // edit since then is 409 INVALID_FROM_STATE and the dashboard refetches.
+  app.post('/customers/:userId/approve', async (c) => {
+    const body = OwnerB2bDecisionRequest.safeParse(await readJson(c));
+    if (!body.success) return apiError(c, 'VALIDATION_FAILED', 'expectedUpdatedAt is required', 400);
+    return b2bDecision(c, (id) => approveB2b(deps, id, c.get('ownerId'), body.data.expectedUpdatedAt));
+  });
+  app.post('/customers/:userId/acknowledge', async (c) => {
+    const body = OwnerB2bDecisionRequest.safeParse(await readJson(c));
+    if (!body.success) return apiError(c, 'VALIDATION_FAILED', 'expectedUpdatedAt is required', 400);
+    return b2bDecision(c, (id) => acknowledgeB2b(deps, id, c.get('ownerId'), body.data.expectedUpdatedAt));
+  });
+  app.post('/customers/:userId/reject', async (c) => {
+    const body = OwnerB2bReasonRequest.safeParse(await readJson(c));
+    if (!body.success) return apiError(c, 'VALIDATION_FAILED', 'reason (1-200 characters) and expectedUpdatedAt are required', 400);
+    return b2bDecision(c, (id) => rejectB2b(deps, id, c.get('ownerId'), body.data.reason, body.data.expectedUpdatedAt));
+  });
+  app.post('/customers/:userId/revoke', async (c) => {
+    const body = OwnerB2bReasonRequest.safeParse(await readJson(c));
+    if (!body.success) return apiError(c, 'VALIDATION_FAILED', 'reason (1-200 characters) and expectedUpdatedAt are required', 400);
+    return b2bDecision(c, (id) => revokeB2b(deps, id, c.get('ownerId'), body.data.reason, body.data.expectedUpdatedAt));
   });
 
   app.get('/orders', async (c) => {

@@ -1,5 +1,5 @@
 /** View models — docs/API_AND_AI_CONTRACTS.md §2.1 and §2.3. */
-import type { OrderStatus, PrepType, QuotaMode, Unit } from '../db';
+import type { B2bStatus, BusinessType, OrderStatus, PrepType, QuotaMode, Unit } from '../db';
 import type { SlipReadResult } from './ai';
 
 export interface OrderItemView {
@@ -72,7 +72,9 @@ export interface PaymentCheckView {
 export type MarginColor = 'GREEN' | 'RED' | 'GREY';
 
 export interface OwnerOrderView extends Omit<CustomerOrderView, 'realtime'> {
-  customer: { id: string; type: 'B2C' | 'B2B'; name: string | null; businessName: string | null; phone: string | null };
+  customer: { id: string; type: 'B2C' | 'B2B'; name: string | null; businessName: string | null; phone: string | null;
+    b2b: { businessName: string; deliveryWindow: string | null } | null;
+  };
   rawOrderText: string | null;
   costSatang: number | null;
   suggestedPriceSatang: number | null;
@@ -110,6 +112,8 @@ export type ApiErrorCode =
   | 'DELIVERY_INCOMPLETE'
   | 'NOT_A_SLIP'
   | 'DUPLICATE'
+  | 'INVALID_FROM_STATE'
+  | 'TOO_MANY_DOCUMENTS'
   | 'INTERNAL';
 
 export interface ApiError {
@@ -120,4 +124,51 @@ export interface ApiError {
 export interface OrderUpdatedBroadcast {
   type: 'order_updated';
   version: number;
+}
+
+// ---- B2B account views ----
+export interface CustomerAccountView {
+  type: 'B2C' | 'B2B';
+  b2b: null | {
+    status: B2bStatus;
+    businessName: string;
+    businessType: BusinessType;
+    addressText: string;
+    lat: number | null;
+    lng: number | null;
+    deliveryWindow: string | null;
+    taxId: string | null;
+    rejectionReason: string | null;
+    needsRereview: boolean;
+    documents: { id: string }[];
+  };
+}
+
+export interface OwnerB2bSummaryView {
+  userId: string;
+  customerName: string | null;
+  businessName: string;
+  businessType: BusinessType;
+  status: B2bStatus;
+  needsRereview: boolean;
+  submittedAt: string;
+}
+
+export interface OwnerB2bDetailView extends OwnerB2bSummaryView {
+  phone: string | null;
+  addressText: string;
+  lat: number | null;
+  lng: number | null;
+  mapUrl: string | null;
+  deliveryWindow: string | null;
+  taxId: string | null;
+  /** Checksum result only; null when no Tax ID. Flags, never approves. */
+  taxIdValid: boolean | null;
+  rereviewFields: string[];
+  rejectionReason: string | null;
+  decidedAt: string | null;
+  verifiedAt: string | null;
+  /** The profile's `updated_at`; sent back as `expectedUpdatedAt` with every owner decision. */
+  updatedAt: string;
+  documents: { id: string; url: string }[];
 }

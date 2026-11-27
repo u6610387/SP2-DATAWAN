@@ -150,3 +150,41 @@ export const ProductUpdateRequest = z
   .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'nothing to update' });
 export type ProductUpdateRequest = z.infer<typeof ProductUpdateRequest>;
 
+// ---- B2B account (docs/API_AND_AI_CONTRACTS.md §2.3a) ----
+const DELIVERY_WINDOW_RE = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
+
+export const B2bApplyRequest = z
+  .object({
+    businessName: z.string().trim().min(1).max(100),
+    businessType: z.enum(['restaurant', 'reseller', 'hotel', 'other']),
+    addressText: z.string().trim().min(5).max(300),
+    lat: z.number().min(5).max(21).nullable(),
+    lng: z.number().min(97).max(106).nullable(),
+    deliveryWindow: z.string().regex(DELIVERY_WINDOW_RE).nullable(),
+    taxId: z.string().regex(/^\d{13}$/).nullable(),
+    documentPaths: z.array(z.string().max(300)).max(3),
+    pdpaConsent: z.literal(true),
+  })
+  .refine((v) => (v.lat === null) === (v.lng === null), { message: 'lat and lng must both be set or both null' });
+export type B2bApplyRequest = z.infer<typeof B2bApplyRequest>;
+
+export const B2bDocUploadUrlRequest = z.object({
+  contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+});
+export type B2bDocUploadUrlRequest = z.infer<typeof B2bDocUploadUrlRequest>;
+
+/**
+ * Owner approve / acknowledge. `expectedUpdatedAt` is the profile `updatedAt` the owner's detail
+ * view showed: a customer edit since then makes the decision 409 INVALID_FROM_STATE (CLAUDE.md §3.1).
+ */
+export const OwnerB2bDecisionRequest = z.object({
+  expectedUpdatedAt: z.string().min(1),
+});
+export type OwnerB2bDecisionRequest = z.infer<typeof OwnerB2bDecisionRequest>;
+
+/** Owner reject / revoke reason (plus the same `expectedUpdatedAt` guard). */
+export const OwnerB2bReasonRequest = z.object({
+  reason: z.string().trim().min(1).max(200),
+  expectedUpdatedAt: z.string().min(1),
+});
+export type OwnerB2bReasonRequest = z.infer<typeof OwnerB2bReasonRequest>;

@@ -239,3 +239,55 @@ export interface OrderEventRow {
   payload: unknown | null;
   created_at: string;
 }
+
+// ---- B2B verification ----
+export type B2bStatus = 'PENDING_VERIFICATION' | 'VERIFIED' | 'REJECTED';
+export type BusinessType = 'restaurant' | 'reseller' | 'hotel' | 'other';
+export type UserEventName =
+  | 'B2B_APPLIED'
+  | 'B2B_UPDATED'
+  | 'B2B_APPROVED'
+  | 'B2B_REJECTED'
+  | 'B2B_REREVIEW'
+  | 'B2B_ACKNOWLEDGED'
+  | 'B2B_REVOKED'
+  | 'B2B_DOCS_PURGED';
+
+export interface BusinessProfileRow {
+  user_id: string;
+  status: B2bStatus;
+  business_name: string;
+  business_type: BusinessType;
+  address_text: string;
+  lat: number | null;
+  lng: number | null;
+  default_delivery_window: string | null;
+  tax_id: string | null;
+  submitted_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+  verified_at: string | null;
+  rejection_reason: string | null;
+  needs_rereview: boolean;
+  rereview_fields: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BusinessDocumentRow {
+  id: string;
+  user_id: string;
+  path: string;
+  content_type: string;
+  uploaded_at: string;
+}
+
+/** Audit log for account-level events. payload holds field names / reason codes only, never PII. */
+export interface UserEventRow {
+  id: string;
+  user_id: string;
+  actor: EventActor;
+  event: UserEventName;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+}

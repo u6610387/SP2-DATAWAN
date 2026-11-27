@@ -18,6 +18,7 @@ export interface Dictionary {
     orderChanged: string;
   };
   nav: {
+    customers: string;
     home: string;
     inventory: string;
   };
@@ -215,6 +216,81 @@ export interface Dictionary {
     deliveringTitle: string;
     trackLink: string;
     deliveredTitle: string;
+  };
+  account: {
+    title: string;
+    myAccountLink: string;
+    statusPending: string;
+    statusVerified: string;
+    statusRejected: string;
+    rejectionReason: (reason: string) => string;
+    reapply: string;
+    rereview: string;
+    typeB2c: string;
+    typeB2b: string;
+    businessName: string;
+    businessType: string;
+    types: Record<'restaurant' | 'reseller' | 'hotel' | 'other', string>;
+    address: string;
+    useLocation: string;
+    locationSet: string;
+    locationError: string;
+    deliveryWindow: string;
+    windowFrom: string;
+    windowTo: string;
+    taxId: string;
+    taxIdInvalid: string;
+    photos: string;
+    photosHint: string;
+    /** How many more photos this submit can add (3 minus the ones already on file). */
+    photosRemaining: (n: number) => string;
+    addPhoto: string;
+    removePhoto: string;
+    consent: string;
+    submit: string;
+    submitting: string;
+    /** Submit errors by API code; the server's English `message` is never shown to the customer. */
+    errors: {
+      validation: string;
+      invalidState: string;
+      tooManyDocuments: string;
+      uploadFailed: string;
+      generic: string;
+    };
+  };
+  customers: {
+    title: string;
+    tabPending: (n: number) => string;
+    tabB2b: string;
+    tabAll: string;
+    empty: string;
+    needsRereview: string;
+    statusPending: string;
+    statusVerified: string;
+    statusRejected: string;
+    back: string;
+    phone: string;
+    address: string;
+    openMap: string;
+    deliveryWindow: string;
+    taxId: string;
+    taxIdValid: string;
+    taxIdInvalid: string;
+    photos: string;
+    noPhotos: string;
+    rereviewFields: (fields: string) => string;
+    rejectionReason: (reason: string) => string;
+    approve: string;
+    approveConfirm: string;
+    reject: string;
+    acknowledge: string;
+    revoke: string;
+    reasonLabel: string;
+    reasonHint: string;
+    confirm: string;
+    cancel: string;
+    changedReload: string;
+    loadError: string;
   };
   pushButton: {
     enable: string;

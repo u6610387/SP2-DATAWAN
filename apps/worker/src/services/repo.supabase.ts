@@ -248,4 +248,80 @@ export class SupabaseRepo implements Repo {
     if (res.error) throw new Error(`supabase countEventsSince: ${res.error.message}`);
     return res.count ?? 0;
   }
+
+  // ---- B2B verification ----
+  async getBusinessProfile(userId: string) {
+    return must(await this.db.from('business_profiles').select('*').eq('user_id', userId).maybeSingle(), 'getBusinessProfile');
+  }
+  async upsertBusinessProfile(p: Omit<import('@datawan/shared').BusinessProfileRow, 'created_at' | 'updated_at'>) {
+    return must(await this.db.from('business_profiles').upsert(p, { onConflict: 'user_id' }).select().single(), 'upsertBusinessProfile');
+  }
+  async updateBusinessProfile(
+    userId: string,
+    expectedStatus: import('@datawan/shared').B2bStatus,
+    patch: Partial<import('@datawan/shared').BusinessProfileRow>,
+    expectedUpdatedAt?: string,
+  ) {
+    let q = this.db.from('business_profiles').update(patch).eq('user_id', userId).eq('status', expectedStatus);
+    if (expectedUpdatedAt !== undefined) q = q.eq('updated_at', expectedUpdatedAt);
+    return must(await q.select().maybeSingle(), 'updateBusinessProfile');
+  }
+  async listBusinessProfiles(filter: 'pending' | 'b2b' | 'all') {
+    let q = this.db.from('business_profiles').select('*');
+    if (filter === 'pending') q = q.or('status.eq.PENDING_VERIFICATION,needs_rereview.eq.true');
+    else if (filter === 'b2b') q = q.eq('status', 'VERIFIED');
+    return must(await q.order('submitted_at', { ascending: false }), 'listBusinessProfiles');
+  }
+  async setUserB2B(userId: string, patch: { user_type: 'B2C' | 'B2B'; business_name: string | null; default_delivery_window: string | null }) {
+    return must(await this.db.from('users').update(patch).eq('id', userId).select('*').single(), 'setUserB2B');
+  }
+  async updateUserB2bDetails(userId: string, patch: { business_name?: string; default_delivery_window?: string | null }) {
+    return must(
+      await this.db.from('users').update(patch).eq('id', userId).eq('user_type', 'B2B').select().maybeSingle(),
+      'updateUserB2bDetails',
+    );
+  }
+  async insertUserEvent(e: { user_id: string; actor: import('@datawan/shared').EventActor; event: import('@datawan/shared').UserEventName; payload?: Record<string, unknown> }) {
+    return must(await this.db.from('user_events').insert({ ...e, payload: e.payload ?? null }).select('*').single(), 'insertUserEvent');
+  }
+  async listUserEvents(userId: string) {
+    return must(await this.db.from('user_events').select('*').eq('user_id', userId).order('created_at', { ascending: true }), 'listUserEvents');
+  }
+  async insertBusinessDocuments(rows: { user_id: string; path: string; content_type: string }[]) {
+    if (!rows.length) return [];
+    return must(await this.db.from('business_documents').insert(rows).select('*'), 'insertBusinessDocuments');
+  }
+  async listBusinessDocuments(userId: string) {
+    return must(await this.db.from('business_documents').select('*').eq('user_id', userId).order('uploaded_at', { ascending: true }), 'listBusinessDocuments');
+  }
+  async listDocsDueForPurge(decidedBeforeIso: string) {
+    const profiles = must<{ user_id: string; decided_at: string }[]>(
+      await this.db.from('business_profiles').select('user_id, decided_at').not('decided_at', 'is', null).lt('decided_at', decidedBeforeIso),
+      'listDocsDueForPurge.profiles',
+    );
+    if (!profiles.length) return [];
+    const decidedAt = new Map(profiles.map((p) => [p.user_id, p.decided_at]));
+    const docs = must<import('@datawan/shared').BusinessDocumentRow[]>(
+      await this.db.from('business_documents').select('*').in('user_id', [...decidedAt.keys()]),
+      'listDocsDueForPurge.docs',
+    );
+    return docs.filter((d) => d.uploaded_at <= decidedAt.get(d.user_id)!);
+  }
+  async deleteBusinessDocuments(ids: string[]) {
+    if (!ids.length) return;
+    must(await this.db.from('business_documents').delete().in('id', ids), 'deleteBusinessDocuments');
+  }
+  async existingBusinessDocumentPaths(paths: string[]) {
+    if (!paths.length) return [];
+    const found: string[] = [];
+    // Chunked: each path is ~80 characters in the query string.
+    for (let i = 0; i < paths.length; i += 100) {
+      const rows = must<{ path: string }[]>(
+        await this.db.from('business_documents').select('path').in('path', paths.slice(i, i + 100)),
+        'existingBusinessDocumentPaths',
+      );
+      found.push(...rows.map((r) => r.path));
+    }
+    return found;
+  }
 }

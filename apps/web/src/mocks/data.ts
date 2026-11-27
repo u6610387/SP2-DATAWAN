@@ -3,7 +3,7 @@
  * against realistic view-model data without the Worker/Supabase/LINE running
  * (docs/API_AND_AI_CONTRACTS.md §7 "mock the Worker API" strategy, Part 2 of CLAUDE.md).
  */
-import type { OwnerOrderView, QuotaStatus } from '@datawan/shared';
+import type { OwnerB2bDetailView, OwnerOrderView, QuotaStatus } from '@datawan/shared';
 
 function order(partial: Partial<OwnerOrderView> & Pick<OwnerOrderView, 'id' | 'code' | 'status'>): OwnerOrderView {
   return {
@@ -19,7 +19,7 @@ function order(partial: Partial<OwnerOrderView> & Pick<OwnerOrderView, 'id' | 'c
     negotiation: [],
     delivery: { recipientName: null, recipientPhone: null, hasLocation: false, needsRecipient: false, addressText: null, lat: null, lng: null, requestedDeliveryAt: null },
     ownerDelayed: false,
-    customer: { id: 'u1', type: 'B2C', name: 'คุณสมหญิง', businessName: null, phone: '0812345678' },
+    customer: { id: 'u1', type: 'B2C', name: 'คุณสมหญิง', businessName: null, phone: '0812345678', b2b: null },
     rawOrderText: null,
     costSatang: null,
     suggestedPriceSatang: null,
@@ -55,6 +55,7 @@ export const mockOrders: OwnerOrderView[] = [
     marginSatang: 30000,
     marginColor: 'GREEN',
     negotiation: [{ round: 1, actor: 'owner', action: 'quote', amountSatang: 120000, message: null }],
+    customer: { id: 'b2b-verified-1', type: 'B2B', name: 'คุณตัวอย่าง', businessName: 'ร้านอาหารตัวอย่าง', phone: '0800000002', b2b: { businessName: 'ร้านอาหารตัวอย่าง', deliveryWindow: '05:30-07:00' } },
   }),
   order({
     id: 'order-3',
@@ -121,3 +122,19 @@ export const mockSummary = {
 
 
 export const mockCategories: { id: string; nameTh: string; sort: number }[] = [];
+
+/** Fake B2B applicants for the owner ลูกค้า tab (fake data only). */
+export const mockB2bCustomers: OwnerB2bDetailView[] = [
+  {
+    userId: 'b2b-pending-1', customerName: 'คุณทดสอบ', businessName: 'ร้านครัวทดสอบ', businessType: 'restaurant', status: 'PENDING_VERIFICATION', needsRereview: false,
+    submittedAt: '2026-11-27T01:00:00.000Z', phone: '0800000001', addressText: '1 ถนนทดสอบ เขตธนบุรี กรุงเทพฯ', lat: 13.72, lng: 100.49,
+    mapUrl: 'https://www.openstreetmap.org/?mlat=13.72&mlon=100.49', deliveryWindow: '06:00-08:00', taxId: '0000000000000', taxIdValid: false,
+    rereviewFields: [], rejectionReason: null, decidedAt: null, verifiedAt: null, updatedAt: '2026-11-27T01:00:00.000Z', documents: [],
+  },
+  {
+    userId: 'b2b-verified-1', customerName: 'คุณตัวอย่าง', businessName: 'ร้านอาหารตัวอย่าง', businessType: 'restaurant', status: 'VERIFIED', needsRereview: true,
+    submittedAt: '2026-11-20T01:00:00.000Z', phone: '0800000002', addressText: '2 ถนนตัวอย่าง เขตธนบุรี กรุงเทพฯ', lat: null, lng: null,
+    mapUrl: null, deliveryWindow: '05:30-07:00', taxId: null, taxIdValid: null,
+    rereviewFields: ['addressText'], rejectionReason: null, decidedAt: '2026-11-21T01:00:00.000Z', verifiedAt: '2026-11-21T01:00:00.000Z', updatedAt: '2026-11-22T01:00:00.000Z', documents: [],
+  },
+];

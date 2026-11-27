@@ -17,12 +17,13 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { createAi } from '@datawan/ai';
-import type { CustomerOrderView, OrderStatus, OwnerOrderView } from '@datawan/shared';
+import { lineAmount, type CustomerOrderView, type OrderStatus, type OwnerOrderView } from '@datawan/shared';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/app';
 import type { Deps } from '../../src/deps';
 import { loadConfig } from '../../src/env';
+import { CRONS, runScheduled } from '../../src/jobs';
 import { signLineBody } from '../../src/line/signature';
 import { RecordingNotifier } from '../../src/services/notifier';
 import { RecordingBroadcaster } from '../../src/services/realtime';
@@ -44,6 +45,7 @@ let realtime: RecordingBroadcaster;
 let auth: FakeAuth;
 let notifier: RecordingNotifier;
 let storage: MemoryStorage;
+let deps: Deps;
 const sent: { method: string; path: string; ifMatch: string | null }[] = [];
 const liffAuth = { idToken: LIFF_TOKEN, devUser: null };
 
@@ -74,7 +76,7 @@ beforeAll(async () => {
   notifier = new RecordingNotifier();
   storage = new MemoryStorage();
   const now = () => new Date();
-  const deps: Deps = {
+  deps = {
     cfg, repo: new SupabaseRepo(supabase), line, notifier, realtime, auth,
     ai: createAi(cfg, {}, now), storage, now,
   };
@@ -783,5 +785,231 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     await say(C, 'กุ้งมังกรตัวใหญ่ 2 โล');
     expect((await latest(C)).needs_owner_review).toBe(true);
   }, 60_000);
-});
 
+  // Owner-verified B2B customers (migration 0007), through the web's real api.ts functions.
+  // Only the owner decides (approve / reject / acknowledge / revoke, actor owner); the badge and the
+  // price anchor follow the VERIFIED profile; business data never reaches user_events.payload.
+  it('b2b: apply → B2C order → approve → badge+anchor → rename → rereview kept → acknowledge → revoke; reject → reapply; purge', async () => {
+    // Obviously fake business data.
+    const SHOP = 'ร้านทดสอบ อีทูอี ซีฟู้ด';
+    const SHOP_RENAMED = 'ร้านทดสอบ อีทูอี สาขาสอง';
+    const SHOP_B = 'โรงแรมทดสอบ บีบี';
+    const TAX_ID = '0105536000313';
+    const ADDRESS = '99/9 ถนนทดสอบอีทูอี แขวงทดสอบ';
+    const REJECT_REASON = 'เอกสารทดสอบไม่ชัด';
+    const REVOKE_REASON = 'ทดสอบเพิกถอนสิทธิ์';
+    const A = 'Ub2bshopa000000000000000000000000';
+    const B = 'Ub2bshopb000000000000000000000000';
+    const authA = { idToken: 'liff-token-b2b-a', devUser: null };
+    const authB = { idToken: 'liff-token-b2b-b', devUser: null };
+    auth.liffUsers.set(authA.idToken, A);
+    auth.liffUsers.set(authB.idToken, B);
+    const userIdOf = async (line: string) => (await db.query<{ id: string }>('select id from users where line_user_id = $1', [line])).rows[0]!.id;
+    const profileRow = async (userId: string) =>
+      (await db.query<{ status: string; needs_rereview: boolean; decided_by: string | null }>(
+        'select status, needs_rereview, decided_by from business_profiles where user_id = $1', [userId])).rows[0]!;
+    const userRow = async (userId: string) =>
+      (await db.query<{ user_type: string; business_name: string | null }>('select user_type, business_name from users where id = $1', [userId])).rows[0]!;
+    const docRows = async (userId: string) => (await db.query<{ path: string }>('select path from business_documents where user_id = $1', [userId])).rows;
+    const eventCount = async () => (await db.query<{ n: number }>('select count(*)::int as n from user_events')).rows[0]!.n;
+    /** What the LIFF does: ask for a signed upload URL, PUT the image, keep the path for the apply. */
+    const uploadDoc = async (a: typeof authA) => {
+      const { uploadUrl, path } = await web.getB2bDocUploadUrl(a, 'image/jpeg');
+      expect(uploadUrl).toContain(path);
+      const [bucket, ...key] = path.split('/');
+      await storage.upload(bucket!, key.join('/'), new Uint8Array([0xff, 0xd8, 0xff]), 'image/jpeg');
+      return path;
+    };
+    const apply = (a: typeof authA, businessName: string, documentPaths: string[]) =>
+      web.applyB2b(a, { businessName, businessType: 'restaurant', addressText: ADDRESS, lat: 13.72, lng: 100.47, deliveryWindow: '06:00-09:00', taxId: TAX_ID, documentPaths, pdpaConsent: true });
+
+    // 1. A orders in chat as a plain B2C customer.
+    await webhook(A, { type: 'message', message: { id: `m${seq + 1}`, type: 'text', quoteToken: 'q', text: 'หอยแครง 2 โล' } });
+    const aId = await userIdOf(A);
+    const orderId = (await db.query<{ id: string }>('select id from orders where user_id = $1', [aId])).rows[0]!.id;
+    expect(await web.getAccount(authA)).toEqual({ type: 'B2C', b2b: null });
+    // A past sell price for this customer: the anchor must still stay hidden until the owner verifies.
+    const item = (await db.query<{ product_id: string; qty: string }>('select product_id, qty::text as qty from order_items where order_id = $1', [orderId])).rows[0]!;
+    await db.query(`insert into price_history (product_id, kind, unit_price_satang, source, user_id) values ($1, 'sell', 15000, 'manual', $2)`, [item.product_id, aId]);
+
+    // 2. A applies with one document → PENDING_VERIFICATION, still B2C; the owner gets a Web Push alert.
+    const docA = await uploadDoc(authA);
+    const applied = await apply(authA, SHOP, [docA]);
+    expect(applied).toMatchObject({ type: 'B2C', b2b: { status: 'PENDING_VERIFICATION', businessName: SHOP, taxId: TAX_ID, needsRereview: false } });
+    expect(applied.b2b!.documents).toHaveLength(1);
+    expect(JSON.stringify(applied)).not.toContain(docA); // ids only, never Storage paths
+    expect((await profileRow(aId)).status).toBe('PENDING_VERIFICATION');
+    expect((await userRow(aId)).user_type).toBe('B2C');
+    expect(notifier.alerts.some((x) => x.kind === 'B2B_APPLICATION' && x.userId === aId)).toBe(true);
+
+    // 3. The order placed while pending has no badge and no anchor.
+    let own = await ownerGet(orderId);
+    expect(own.customer.b2b).toBeNull();
+    expect(own.b2bAnchorPriceSatang).toBeNull();
+
+    // 4. Owner reviews: pending list, detail with the Tax ID checksum flag and a signed doc URL.
+    expect((await web.listB2bCustomers(OWNER_TOKEN, 'pending')).map((x) => x.userId)).toContain(aId);
+    const detail = await web.getB2bCustomer(OWNER_TOKEN, aId);
+    expect(detail).toMatchObject({ userId: aId, status: 'PENDING_VERIFICATION', businessName: SHOP, taxId: TAX_ID, taxIdValid: true });
+    expect(detail.documents).toHaveLength(1);
+
+    // 5. Owner approves (a minute later, so the document predates the decision).
+    vi.setSystemTime(Date.now() + 60_000);
+    try {
+      const approved = await web.approveB2bCustomer(OWNER_TOKEN, aId, detail.updatedAt);
+      expect(approved.status).toBe('VERIFIED');
+      expect(await profileRow(aId)).toMatchObject({ status: 'VERIFIED', decided_by: OWNER_AUTH });
+      expect(await userRow(aId)).toEqual({ user_type: 'B2B', business_name: SHOP });
+      expect((await web.listB2bCustomers(OWNER_TOKEN, 'b2b')).map((x) => x.userId)).toContain(aId);
+
+      // 6. The next owner order view shows the badge and the anchor from the customer's last price.
+      own = await ownerGet(orderId);
+      expect(own.customer.b2b).toEqual({ businessName: SHOP, deliveryWindow: '06:00-09:00' });
+      expect(own.b2bAnchorPriceSatang).toBe(lineAmount(15000, Number(item.qty)));
+
+      // 7. A renames the shop: re-review flagged, still B2B, the badge keeps the owner-approved name.
+      const renamed = await apply(authA, SHOP_RENAMED, [docA]);
+      expect(renamed).toMatchObject({ type: 'B2B', b2b: { status: 'VERIFIED', businessName: SHOP_RENAMED, needsRereview: true } });
+      expect(await profileRow(aId)).toMatchObject({ status: 'VERIFIED', needs_rereview: true });
+      expect(await userRow(aId)).toEqual({ user_type: 'B2B', business_name: SHOP });
+      expect((await ownerGet(orderId)).customer.b2b!.businessName).toBe(SHOP);
+      const rereview = await web.getB2bCustomer(OWNER_TOKEN, aId);
+      expect(rereview.rereviewFields).toEqual(['business_name']);
+
+      // 8. Owner acknowledges what they saw: the new name becomes the badge name.
+      const acked = await web.acknowledgeB2bCustomer(OWNER_TOKEN, aId, rereview.updatedAt);
+      expect(acked).toMatchObject({ status: 'VERIFIED', needsRereview: false });
+      expect(await userRow(aId)).toEqual({ user_type: 'B2B', business_name: SHOP_RENAMED });
+      expect((await ownerGet(orderId)).customer.b2b!.businessName).toBe(SHOP_RENAMED);
+
+      // 9. Owner revokes: back to B2C, no badge, no anchor.
+      const revoked = await web.revokeB2bCustomer(OWNER_TOKEN, aId, REVOKE_REASON, acked.updatedAt);
+      expect(revoked).toMatchObject({ status: 'REJECTED', rejectionReason: REVOKE_REASON });
+      expect((await userRow(aId)).user_type).toBe('B2C');
+      own = await ownerGet(orderId);
+      expect(own.customer.b2b).toBeNull();
+      expect(own.b2bAnchorPriceSatang).toBeNull();
+
+      // 10. B: reject → reapply. Re-applying deletes the rejected application's documents at once.
+      const docB1 = await uploadDoc(authB);
+      await apply(authB, SHOP_B, [docB1]);
+      const bId = await userIdOf(B);
+      await web.rejectB2bCustomer(OWNER_TOKEN, bId, REJECT_REASON, (await web.getB2bCustomer(OWNER_TOKEN, bId)).updatedAt);
+      expect(await profileRow(bId)).toMatchObject({ status: 'REJECTED', decided_by: OWNER_AUTH });
+      expect(await web.getAccount(authB)).toMatchObject({ type: 'B2C', b2b: { status: 'REJECTED', rejectionReason: REJECT_REASON } });
+      const docB2 = await uploadDoc(authB);
+      expect(await apply(authB, SHOP_B, [docB2])).toMatchObject({ type: 'B2C', b2b: { status: 'PENDING_VERIFICATION', rejectionReason: null } });
+      expect((await profileRow(bId)).status).toBe('PENDING_VERIFICATION');
+      expect((await docRows(bId)).map((d) => d.path)).toEqual([docB2]);
+      expect(storage.objects.has(docB1)).toBe(false);
+
+      // 10b. The owner opened B's application, then B edited it: approving what the owner saw is a
+      //      409 on real Postgres (updated_at compared as stored), nothing is decided (§3.1).
+      const seenB = (await web.getB2bCustomer(OWNER_TOKEN, bId)).updatedAt;
+      vi.setSystemTime(Date.now() + 1_000); // the clock is frozen here; in production time passes between requests
+      await apply(authB, SHOP_B, [docB2]);
+      await expect(web.approveB2bCustomer(OWNER_TOKEN, bId, seenB)).rejects.toMatchObject({ status: 409, code: 'INVALID_FROM_STATE' });
+      expect((await profileRow(bId)).status).toBe('PENDING_VERIFICATION');
+      expect((await userRow(bId)).user_type).toBe('B2C');
+      expect((await db.query(`select 1 from user_events where user_id = $1 and event = 'B2B_APPROVED'`, [bId])).rows).toEqual([]);
+
+      // 11. An owner decision on an unknown customer is a 404 and writes nothing.
+      const before = await eventCount();
+      await expect(web.approveB2bCustomer(OWNER_TOKEN, crypto.randomUUID(), detail.updatedAt)).rejects.toMatchObject({ status: 404 });
+      expect(await eventCount()).toBe(before);
+
+      // 12. 31 days after the decision the daily cleanup purges A's pre-decision document (rows and
+      //     object); B's pending application keeps its document.
+      expect(await docRows(aId)).toHaveLength(1);
+      vi.setSystemTime(Date.now() + 31 * 86_400_000);
+      await runScheduled(deps, CRONS.CLEANUP);
+      expect(await docRows(aId)).toEqual([]);
+      expect(storage.objects.has(docA)).toBe(false);
+      expect((await docRows(bId)).map((d) => d.path)).toEqual([docB2]);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // 13. Audit trail: owner decisions as owner, the purge as system; payloads hold no business data.
+    //     (Steps run within the same millisecond, so created_at can tie: compare as a set; the order
+    //     itself is proven by the state checks above.)
+    const ev = (await db.query<{ actor: string; event: string; payload: unknown }>(
+      `select actor, event, payload from user_events where user_id = $1`, [aId])).rows;
+    expect(ev).toHaveLength(6);
+    expect(ev).toEqual(expect.arrayContaining([
+      { actor: 'customer', event: 'B2B_APPLIED', payload: {} },
+      { actor: 'owner', event: 'B2B_APPROVED', payload: {} },
+      { actor: 'customer', event: 'B2B_REREVIEW', payload: { fields: ['business_name'] } },
+      { actor: 'owner', event: 'B2B_ACKNOWLEDGED', payload: { fields: ['business_name'] } },
+      { actor: 'owner', event: 'B2B_REVOKED', payload: {} },
+      { actor: 'system', event: 'B2B_DOCS_PURGED', payload: { count: 1 } },
+    ]));
+    const payloads = (await db.query<{ p: string | null }>(
+      `select payload::text as p from user_events where user_id in ($1, $2)`, [aId, await userIdOf(B)])).rows.map((r) => r.p ?? '').join('\n');
+    for (const secret of [SHOP, SHOP_RENAMED, SHOP_B, TAX_ID, ADDRESS, REJECT_REASON, REVOKE_REASON]) expect(payloads).not.toContain(secret);
+  }, 60_000);
+
+  // Retention counts from the last decision. A document a verified shop adds later is a sensitive
+  // change (re-review): it is not "decided" until the owner acknowledges it, so it survives the purge
+  // of the older one while the re-review is pending, and goes 30 days after the acknowledge.
+  it('b2b purge: deletes only documents uploaded before the last decision (real Postgres)', async () => {
+    const C = 'Ub2bshopc000000000000000000000000';
+    const authC = { idToken: 'liff-token-b2b-c', devUser: null };
+    auth.liffUsers.set(authC.idToken, C);
+    const uploadDoc = async () => {
+      const { path } = await web.getB2bDocUploadUrl(authC, 'image/jpeg');
+      const [bucket, ...key] = path.split('/');
+      await storage.upload(bucket!, key.join('/'), new Uint8Array([0xff, 0xd8, 0xff]), 'image/jpeg');
+      return path;
+    };
+    const apply = (deliveryWindow: string, documentPaths: string[]) =>
+      web.applyB2b(authC, { businessName: 'ร้านทดสอบ ซีซี', businessType: 'reseller', addressText: '7/7 ถนนทดสอบซี', lat: null, lng: null, deliveryWindow, taxId: null, documentPaths, pdpaConsent: true });
+    const docPaths = async (userId: string) =>
+      (await db.query<{ path: string }>('select path from business_documents where user_id = $1', [userId])).rows.map((d) => d.path);
+    const purges = async (userId: string) =>
+      (await db.query<{ actor: string; payload: { count: number } }>(
+        `select actor, payload from user_events where user_id = $1 and event = 'B2B_DOCS_PURGED'`, [userId])).rows;
+    const MIN = 60_000;
+    try {
+      const c1 = await uploadDoc();
+      await apply('06:00-09:00', [c1]);
+      const cId = (await db.query<{ id: string }>('select id from users where line_user_id = $1', [C])).rows[0]!.id;
+
+      vi.setSystemTime(Date.now() + MIN);
+      await web.approveB2bCustomer(OWNER_TOKEN, cId, (await web.getB2bCustomer(OWNER_TOKEN, cId)).updatedAt);
+      const approvedAt = Date.now();
+
+      // A new document on a verified shop → re-review; the decision time does not move yet.
+      vi.setSystemTime(Date.now() + MIN);
+      const c2 = await uploadDoc();
+      const edited = await apply('10:00-12:00', [c2]);
+      expect(edited).toMatchObject({ type: 'B2B', b2b: { status: 'VERIFIED', needsRereview: true, deliveryWindow: '10:00-12:00' } });
+      expect((await web.getB2bCustomer(OWNER_TOKEN, cId)).rereviewFields).toEqual(['documents']);
+      const decided = (await db.query<{ decided_at: Date }>('select decided_at from business_profiles where user_id = $1', [cId])).rows[0]!;
+      expect(new Date(decided.decided_at).getTime()).toBe(approvedAt);
+
+      // 31 days after the approval, re-review still pending: C1 purged, C2 kept.
+      vi.setSystemTime(approvedAt + 31 * 86_400_000);
+      await runScheduled(deps, CRONS.CLEANUP);
+      expect(await docPaths(cId)).toEqual([c2]);
+      expect(storage.objects.has(c1)).toBe(false);
+      expect(storage.objects.has(c2)).toBe(true);
+      expect(await purges(cId)).toEqual([{ actor: 'system', payload: { count: 1 } }]);
+
+      // The owner acknowledges (deciding on C2); 31 days later C2 is purged too.
+      const acked = await web.acknowledgeB2bCustomer(OWNER_TOKEN, cId, (await web.getB2bCustomer(OWNER_TOKEN, cId)).updatedAt);
+      expect(acked).toMatchObject({ status: 'VERIFIED', needsRereview: false });
+      const ackedAt = Date.now();
+      vi.setSystemTime(ackedAt + 29 * 86_400_000);
+      await runScheduled(deps, CRONS.CLEANUP);
+      expect(await docPaths(cId)).toEqual([c2]);
+      vi.setSystemTime(ackedAt + 31 * 86_400_000);
+      await runScheduled(deps, CRONS.CLEANUP);
+      expect(await docPaths(cId)).toEqual([]);
+      expect(storage.objects.has(c2)).toBe(false);
+      expect(await purges(cId)).toEqual([{ actor: 'system', payload: { count: 1 } }, { actor: 'system', payload: { count: 1 } }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 60_000);
+});

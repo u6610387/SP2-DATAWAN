@@ -50,6 +50,7 @@ beforeAll(async () => {
     insert into orders (id, user_id, address_id, recipient_name, recipient_phone, status) values ('aaaaaaaa-0000-4000-8000-000000000003', 'aaaaaaaa-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000002', 'ผู้รับ', '0811111111', 'PAYMENT_REVIEW');
     insert into payments (order_id, slip_path, reference_no) values ('aaaaaaaa-0000-4000-8000-000000000003', 'slips/aaaaaaaa-0000-4000-8000-000000000003/s.jpeg', 'REF0001');
     insert into order_events (order_id, actor, event) values ('aaaaaaaa-0000-4000-8000-000000000003', 'customer', 'ORDER_CREATED');
+    insert into user_events (user_id, actor, event) values ('aaaaaaaa-0000-4000-8000-000000000001', 'customer', 'B2B_APPLIED');
     insert into push_subscriptions (owner_id, endpoint, p256dh, auth) values ('${OWNER_AUTH}', 'https://push.example/1', 'k', 'a'), ('${OTHER_AUTH}', 'https://push.example/2', 'k', 'a');
     insert into storage.objects (bucket_id, name) values ('slips', 'aaaaaaaa-0000-4000-8000-000000000003/s.jpeg');
   `);
@@ -87,9 +88,9 @@ describe('RLS catalog guards (every migration, including future ones)', () => {
     expect(views.filter((v) => !(v.opts ?? []).includes('security_invoker=true')).map((v) => v.v)).toEqual([]);
   });
 
-  it('slips and supplier-bills buckets are private', async () => {
+  it('all buckets are private', async () => {
     const b = (await db.query<{ id: string; public: boolean }>(`select id, public from storage.buckets order by id`)).rows;
-    expect(b).toEqual([{ id: 'slips', public: false }, { id: 'supplier-bills', public: false }]);
+    expect(b).toEqual([{ id: 'business-docs', public: false }, { id: 'slips', public: false }, { id: 'supplier-bills', public: false }]);
   });
 
   it('functions pin search_path (Supabase linter: function_search_path_mutable)', async () => {
@@ -122,7 +123,7 @@ describe('RLS behaviour as the Supabase API roles', () => {
 
   it('a signed-up non-owner (even claiming role=owner in user_metadata) reads nothing', async () => {
     await as('authenticated', STRANGER, async () => {
-      for (const t of ['users', 'addresses', 'orders', 'payments', 'order_events']) expect(await count(t), t).toBe(0);
+      for (const t of ['users', 'addresses', 'orders', 'payments', 'order_events', 'user_events']) expect(await count(t), t).toBe(0);
       expect(await count('storage.objects')).toBe(0);
       // can only see their own push subscription, never the owner's
       expect((await db.query<{ endpoint: string }>(`select endpoint from push_subscriptions`)).rows).toEqual([{ endpoint: 'https://push.example/2' }]);
@@ -135,6 +136,9 @@ describe('RLS behaviour as the Supabase API roles', () => {
       expect(await count('storage.objects')).toBe(1);
       expect(await fails(`update order_events set event = 'X'`)).toMatch(/permission denied/);
       expect(await fails(`delete from order_events`)).toMatch(/permission denied/);
+      expect(await count('user_events')).toBe(1);
+      expect(await fails(`update user_events set event = 'B2B_REVOKED'`)).toMatch(/permission denied/);
+      expect(await fails(`delete from user_events`)).toMatch(/permission denied/);
       expect((await db.query<{ endpoint: string }>(`select endpoint from push_subscriptions`)).rows).toEqual([{ endpoint: 'https://push.example/1' }]);
     });
   });

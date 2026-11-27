@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useRef, useState } from 'react';
 import useSWR from 'swr';
@@ -190,6 +191,12 @@ function OrderRoom({ orderId, auth }: { orderId: string; auth: { idToken: string
           <CardTitle>{t.liff.deliveredTitle}</CardTitle>
         </Card>
       )}
+
+      <p className="pt-2 text-center text-xs">
+        <Link href="/liff/account" className="text-[var(--muted)] underline">
+          {t.account.myAccountLink}
+        </Link>
+      </p>
     </div>
   );
 }
