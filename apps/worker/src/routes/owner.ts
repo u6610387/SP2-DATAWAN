@@ -18,6 +18,8 @@ import {
   DeliveredRequest,
   DispatchRequest,
   NegotiationRequest,
+  OwnerB2bReasonRequest,
+  type OwnerB2bDetailView,
   PushSubscriptionRequest,
   RejectSlipRequest,
   SetPriceRequest,
@@ -36,7 +38,8 @@ import { createCategory, createProduct, updateProduct } from '../services/catalo
 import { suggestPrice } from '../services/pricing';
 import { ownerCheckSlipQr } from '../services/slipQrCheck';
 import { splitPath } from '../services/storage';
-import { toOwnerOrderView } from '../services/views';
+import { toOwnerB2bDetailView, toOwnerB2bSummaryView, toOwnerOrderView } from '../services/views';
+import { acknowledgeB2b, approveB2b, rejectB2b, revokeB2b, type B2bResult } from '../services/b2b';
 import { startOfBangkokDay } from '../util/time';
 import { apiError, checkIfMatch, conflictError, deliveryIncompleteError } from './respond';
 
@@ -100,6 +103,26 @@ async function buildOwnerView(deps: Deps, order: OrderRow): Promise<OwnerOrderVi
   });
 }
 
+async function buildB2bDetail(deps: Deps, userId: string): Promise<OwnerB2bDetailView | null> {
+  const [profile, user, docRows] = await Promise.all([
+    deps.repo.getBusinessProfile(userId),
+    deps.repo.getUser(userId),
+    deps.repo.listBusinessDocuments(userId),
+  ]);
+  if (!profile) return null;
+  const docs: { id: string; url: string }[] = [];
+  for (const doc of docRows) {
+    try {
+      const { bucket, key } = splitPath(doc.path);
+      docs.push({ id: doc.id, url: await deps.storage.getSignedUrl(bucket, key, 300) });
+    } catch {
+      // A re-apply can leave a row whose object was purged: skip it, keep the review usable.
+      console.warn('[b2b] doc url failed', doc.id);
+    }
+  }
+  return toOwnerB2bDetailView(profile, user, docs);
+}
+
 async function readJson(c: Context): Promise<unknown> {
   try {
     return await c.req.json();
@@ -133,6 +156,44 @@ export function createOwnerRoutes(deps: Deps) {
       grossMarginSatang: productRevenueSatang - costSatang,
       openByStatus,
     });
+  });
+
+  app.get('/customers', async (c) => {
+    const filter = c.req.query('filter') ?? 'pending';
+    if (filter !== 'pending' && filter !== 'b2b' && filter !== 'all') return apiError(c, 'VALIDATION_FAILED', 'filter must be pending, b2b or all', 400);
+    const profiles = await deps.repo.listBusinessProfiles(filter);
+    const users = await Promise.all(profiles.map((p) => deps.repo.getUser(p.user_id)));
+    return c.json(profiles.map((p, i) => toOwnerB2bSummaryView(p, users[i] ?? null)));
+  });
+
+  app.get('/customers/:userId', async (c) => {
+    const view = await buildB2bDetail(deps, c.req.param('userId'));
+    return view ? c.json(view) : apiError(c, 'NOT_FOUND', 'customer not found', 404);
+  });
+
+  const b2bDecision = async (c: Context<Env>, run: (userId: string) => Promise<B2bResult>) => {
+    const userId = c.req.param('userId') ?? '';
+    const r = await run(userId);
+    if (!r.ok) {
+      return r.reason === 'NOT_FOUND'
+        ? apiError(c, 'NOT_FOUND', 'customer not found', 404)
+        : apiError(c, r.reason, 'application is not in a state that allows this decision', 409);
+    }
+    const view = await buildB2bDetail(deps, userId);
+    return view ? c.json(view) : apiError(c, 'NOT_FOUND', 'customer not found', 404);
+  };
+
+  app.post('/customers/:userId/approve', (c) => b2bDecision(c, (id) => approveB2b(deps, id, c.get('ownerId'))));
+  app.post('/customers/:userId/acknowledge', (c) => b2bDecision(c, (id) => acknowledgeB2b(deps, id, c.get('ownerId'))));
+  app.post('/customers/:userId/reject', async (c) => {
+    const body = OwnerB2bReasonRequest.safeParse(await readJson(c));
+    if (!body.success) return apiError(c, 'VALIDATION_FAILED', 'reason is required (1-200 characters)', 400);
+    return b2bDecision(c, (id) => rejectB2b(deps, id, c.get('ownerId'), body.data.reason));
+  });
+  app.post('/customers/:userId/revoke', async (c) => {
+    const body = OwnerB2bReasonRequest.safeParse(await readJson(c));
+    if (!body.success) return apiError(c, 'VALIDATION_FAILED', 'reason is required (1-200 characters)', 400);
+    return b2bDecision(c, (id) => revokeB2b(deps, id, c.get('ownerId'), body.data.reason));
   });
 
   app.get('/orders', async (c) => {

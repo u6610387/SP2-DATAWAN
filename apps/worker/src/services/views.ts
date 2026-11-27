@@ -16,6 +16,9 @@ import {
   type OrderRow,
   type OrderItemView,
   type OwnerOrderView,
+  type OwnerB2bSummaryView,
+  type OwnerB2bDetailView,
+  isValidThaiTaxId,
   type PaymentCheckView,
   type PaymentRow,
   type ProductRow,
@@ -171,5 +174,37 @@ export function toCustomerAccountView(user: UserRow, profile: BusinessProfileRow
       needsRereview: profile.needs_rereview,
       documents: documents.map((d) => ({ id: d.id })),
     },
+  };
+}
+
+export function toOwnerB2bSummaryView(profile: BusinessProfileRow, user: UserRow | null): OwnerB2bSummaryView {
+  return {
+    userId: profile.user_id,
+    customerName: user ? (user.full_name ?? user.display_name) : null,
+    businessName: profile.business_name,
+    businessType: profile.business_type,
+    status: profile.status,
+    needsRereview: profile.needs_rereview,
+    submittedAt: profile.submitted_at,
+  };
+}
+
+/** Owner review view. phone and taxId are owner-only data; taxIdValid is a checksum flag, never an approval. */
+export function toOwnerB2bDetailView(profile: BusinessProfileRow, user: UserRow | null, docs: { id: string; url: string }[]): OwnerB2bDetailView {
+  return {
+    ...toOwnerB2bSummaryView(profile, user),
+    phone: user?.phone ?? null,
+    addressText: profile.address_text,
+    lat: profile.lat,
+    lng: profile.lng,
+    mapUrl: mapUrl(profile.lat, profile.lng),
+    deliveryWindow: profile.default_delivery_window,
+    taxId: profile.tax_id,
+    taxIdValid: profile.tax_id ? isValidThaiTaxId(profile.tax_id) : null,
+    rereviewFields: profile.rereview_fields,
+    rejectionReason: profile.rejection_reason,
+    decidedAt: profile.decided_at,
+    verifiedAt: profile.verified_at,
+    documents: docs,
   };
 }
