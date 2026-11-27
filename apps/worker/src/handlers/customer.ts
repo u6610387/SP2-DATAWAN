@@ -18,6 +18,7 @@ import type { LineMessage } from '../line/api';
 import * as flex from '../line/flex';
 import { applyEvent, logEvent, patchOrder, resolveActiveOrder } from '../services/orders';
 import { completeLocation, profileHasRecipient } from '../services/recipient';
+import { reviewNeeded } from '../services/review';
 import * as actions from '../services/orderActions';
 import { isMapsUrl, looksLikeAddress, parseMapsLink } from '../services/location';
 import { suggestPrice } from '../services/pricing';
@@ -70,7 +71,12 @@ function noProductRecognised(parse: ResolvedOrderParse, items: NewOrderItem[]): 
   return ['new_order', 'modify', 'reorder'].includes(parse.intent) && items.length === 0 && parse.missing_fields.includes('product');
 }
 
+async function alreadyAlertedUnrecognised(deps: Deps, orderId: string): Promise<boolean> {
+  return (await deps.repo.listOrderEvents(orderId)).some((e) => e.event === 'UNRECOGNISED_ALERTED' || (e.event === 'ORDER_CREATED' && (e.payload as { unrecognisedProduct?: boolean } | null)?.unrecognisedProduct));
+}
+
 async function alertUnrecognisedProduct(deps: Deps, order: OrderRow, text: string): Promise<void> {
+  await logEvent(deps, order, 'system', 'UNRECOGNISED_ALERTED', {});
   const snippet = text.length > 60 ? `${text.slice(0, 60)}…` : text;
   await deps.notifier.notify({ kind: 'NEEDS_REVIEW', orderId: order.id, code: order.code, reason: `no catalog product matched: "${snippet}"` });
 }
@@ -137,12 +143,13 @@ export async function createOrderFromParse(
 ): Promise<{ order: OrderRow; messages: LineMessage[] }> {
   const items = toNewItems(parse, products);
   const unrecognised = noProductRecognised(parse, items);
+  const review = reviewNeeded(parse, items, warnings);
   const order = await deps.repo.createOrder(
     {
       user_id: user.id,
       raw_order_text: text,
       ai_parse: parse,
-      needs_owner_review: warnings.length > 0 || unrecognised,
+      needs_owner_review: review.needed,
       channel: 'chat',
       source_order_id: parse.intent === 'reorder' ? sourceOrderId : null,
       requested_delivery_at: parse.delivery_time.iso,
@@ -150,7 +157,7 @@ export async function createOrderFromParse(
     items,
   );
   await deps.repo.setActiveOrder(user.id, order.id);
-  await logEvent(deps, order, 'customer', 'ORDER_CREATED', { intent: parse.intent, warnings, ...(unrecognised ? { unrecognisedProduct: true } : {}) });
+  await logEvent(deps, order, 'customer', 'ORDER_CREATED', { intent: parse.intent, warnings, reviewReasons: review.reasons, ...(unrecognised ? { unrecognisedProduct: true } : {}) });
   if (unrecognised) await alertUnrecognisedProduct(deps, order, text);
   return { order, messages: await confirmOrAsk(deps, order, parse) };
 }
@@ -185,16 +192,22 @@ async function editDraft(deps: Deps, user: UserRow, order: OrderRow, text: strin
   if (parse.intent === 'not_order' || parse.intent === 'question') return reply(deps, replyToken, [await statusReply(deps, order)]);
   const items = toNewItems(parse, products);
   const unrecognised = noProductRecognised(parse, items);
+  // Re-evaluated from the whole draft after this edit (not sticky): filling in the missing
+  // quantity clears the flag; anything still uncertain keeps it.
+  const review = reviewNeeded(parse, items, warnings);
   await deps.repo.replaceItems(order.id, items);
   const res = await applyEvent(deps, order, 'CUSTOMER_EDIT', 'customer', {
     ai_parse: parse,
-    needs_owner_review: order.needs_owner_review || warnings.length > 0 || unrecognised,
+    needs_owner_review: review.needed,
     requested_delivery_at: parse.delivery_time.iso ?? order.requested_delivery_at,
     raw_order_text: `${order.raw_order_text ?? ''}\n${text}`.trim(),
   });
   if (!res.ok) return reply(deps, replyToken, [await statusReply(deps, order)]);
-  // Alert once per order: only when this edit is what first flags it.
-  if (unrecognised && !order.needs_owner_review) await alertUnrecognisedProduct(deps, res.order, text);
+  if (review.needed !== order.needs_owner_review) {
+    await logEvent(deps, res.order, 'system', review.needed ? 'REVIEW_FLAGGED' : 'REVIEW_CLEARED', { reasons: review.reasons });
+  }
+  // Alert once per order for an unrecognised product (not again on every follow-up).
+  if (unrecognised && !(await alreadyAlertedUnrecognised(deps, order.id))) await alertUnrecognisedProduct(deps, res.order, text);
   return reply(deps, replyToken, await confirmOrAsk(deps, res.order, parse));
 }
 

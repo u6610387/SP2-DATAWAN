@@ -153,7 +153,8 @@ export function createAiService(provider: AiProvider, opts: AiServiceOptions): A
 
       const r = await run('ORDER_PARSE', OrderParseResult, count, () => provider.orderParse(payload));
       if (!r.ok) return r;
-      const { result, warnings } = checkOrderParse(r.data, { strippedMessage: text, catalog });
+      const draftRawTexts = args.previousDraft ? stripPIIDeep(toRefs(args.previousDraft), pii).items.map((i) => i.raw_text) : undefined;
+      const { result, warnings } = checkOrderParse(r.data, { strippedMessage: text, catalog, ...(draftRawTexts ? { draftRawTexts } : {}) });
       const resolved: ResolvedOrderParse = restorePII(
         { ...result, items: result.items.map((it) => ({ ...it, product_id: it.product_ref ? refToId.get(it.product_ref) ?? null : null })) },
         map,

@@ -237,6 +237,9 @@ export class SupabaseRepo implements Repo {
       'listPushEvents',
     );
   }
+  async listOrderEvents(orderId: string) {
+    return must(await this.db.from('order_events').select('*').eq('order_id', orderId).order('created_at', { ascending: true }), 'listOrderEvents');
+  }
   async getEvent(id: string) {
     return must(await this.db.from('order_events').select('*').eq('id', id).maybeSingle(), 'getEvent');
   }

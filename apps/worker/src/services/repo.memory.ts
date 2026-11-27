@@ -339,6 +339,9 @@ export class MemoryRepo implements Repo {
       .sort((a, b) => b.e.created_at.localeCompare(a.e.created_at) || b.i - a.i)
       .map(({ e }) => ({ ...e }));
   }
+  async listOrderEvents(orderId: string) {
+    return this.events.filter((e) => e.order_id === orderId).map((e) => ({ ...e }));
+  }
   async getEvent(id: string) {
     const e = this.events.find((x) => x.id === id);
     return e ? { ...e } : null;
