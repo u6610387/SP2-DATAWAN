@@ -18,6 +18,19 @@ import type { Dictionary } from '@/lib/i18n/dictionary';
 const MAX_DOCUMENTS = 3;
 const BUSINESS_TYPES: BusinessType[] = ['restaurant', 'reseller', 'hotel', 'other'];
 
+/** Why the form can't be sent yet, in form order. The Tax ID checksum only warns (owner sees ✗). */
+export type MissingRequirement = 'businessName' | 'address' | 'taxIdLength' | 'deliveryWindow' | 'consent';
+
+export function missingRequirements(v: B2bFormValues): MissingRequirement[] {
+  const out: MissingRequirement[] = [];
+  if (v.businessName.trim() === '') out.push('businessName');
+  if (v.addressText.trim().length < 5) out.push('address');
+  if (v.taxId !== '' && v.taxId.length !== 13) out.push('taxIdLength');
+  if ((v.windowFrom === '') !== (v.windowTo === '')) out.push('deliveryWindow');
+  if (!v.consent) out.push('consent');
+  return out;
+}
+
 export interface B2bFormValues {
   businessName: string;
   businessType: BusinessType;
@@ -104,11 +117,11 @@ export function B2bApplicationForm({
   const photoSlots = maxNewPhotos(account);
   const remaining = Math.max(0, photoSlots - photos.length);
 
-  const taxIdComplete = values.taxId.length === 13;
-  const taxIdOk = values.taxId === '' || taxIdComplete;
-  const taxIdWarn = taxIdComplete && !isValidThaiTaxId(values.taxId);
-  const windowOk = (values.windowFrom === '') === (values.windowTo === '');
-  const canSubmit = values.businessName.trim() !== '' && values.addressText.trim().length >= 5 && taxIdOk && windowOk && values.consent && !busy;
+  const taxIdWarn = values.taxId.length === 13 && !isValidThaiTaxId(values.taxId);
+  // One source for both the disabled button and the hints, so they can't disagree.
+  const missing = missingRequirements(values);
+  const canSubmit = missing.length === 0 && !busy;
+  const addressShort = values.addressText.trim() !== '' && values.addressText.trim().length < 5;
 
   const formFields = (): B2bFormFields => ({
     businessName: values.businessName.trim(),
@@ -164,7 +177,7 @@ export function B2bApplicationForm({
       {showForm && (
         <Card>
           <label className="block text-xs text-[var(--muted)]" htmlFor="b2b-name">
-            {t.account.businessName}
+            {t.account.businessName} <span className="text-[var(--red)]" aria-hidden="true">*</span>
           </label>
           <Input id="b2b-name" maxLength={100} value={values.businessName} onChange={(e) => set('businessName', e.target.value)} />
 
@@ -185,7 +198,7 @@ export function B2bApplicationForm({
           </select>
 
           <label className="mt-2 block text-xs text-[var(--muted)]" htmlFor="b2b-address">
-            {t.account.address}
+            {t.account.address} <span className="text-[var(--red)]" aria-hidden="true">*</span>
           </label>
           <textarea
             id="b2b-address"
@@ -194,7 +207,9 @@ export function B2bApplicationForm({
             className="w-full rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm"
             value={values.addressText}
             onChange={(e) => set('addressText', e.target.value)}
+            aria-invalid={addressShort}
           />
+          {addressShort && <p className="mt-1 text-xs text-[var(--red)]">{t.account.hints.addressShort}</p>}
           <div className="mt-2 flex items-center gap-2">
             <Button variant="secondary" size="sm" type="button" disabled={busy} onClick={useCurrentLocation}>
               {t.account.useLocation}
@@ -209,6 +224,7 @@ export function B2bApplicationForm({
             <span className="text-sm">–</span>
             <Input type="time" aria-label={t.account.windowTo} value={values.windowTo} onChange={(e) => set('windowTo', e.target.value)} />
           </div>
+          {missing.includes('deliveryWindow') && <p className="mt-1 text-xs text-[var(--red)]">{t.account.hints.deliveryWindow}</p>}
 
           <label className="mt-2 block text-xs text-[var(--muted)]" htmlFor="b2b-taxid">
             {t.account.taxId}
@@ -219,8 +235,9 @@ export function B2bApplicationForm({
             maxLength={13}
             value={values.taxId}
             onChange={(e) => set('taxId', e.target.value.replace(/\D/g, '').slice(0, 13))}
-            aria-invalid={taxIdWarn}
+            aria-invalid={taxIdWarn || missing.includes('taxIdLength')}
           />
+          {missing.includes('taxIdLength') && <p className="mt-1 text-xs text-[var(--red)]">{t.account.hints.taxIdLength(values.taxId.length)}</p>}
           {taxIdWarn && <p className="mt-1 text-xs text-[var(--yellow)]">{t.account.taxIdInvalid}</p>}
 
           <div className="mt-3 text-xs text-[var(--muted)]">
@@ -270,6 +287,17 @@ export function B2bApplicationForm({
             />
             <span>{t.account.consent}</span>
           </label>
+
+          {missing.length > 0 && !busy && (
+            <div className="mt-3 rounded-xl bg-[var(--red-bg)] px-3 py-2 text-xs text-[var(--red)]" role="status" aria-live="polite">
+              <p className="font-semibold">{t.account.hints.title}</p>
+              <ul className="mt-1 list-disc pl-5">
+                {missing.map((m) => (
+                  <li key={m}>{m === 'taxIdLength' ? t.account.hints.taxIdLength(values.taxId.length) : t.account.hints[m]}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <Button
             className="mt-3"
