@@ -4,9 +4,10 @@
  * from an owner-authenticated caller. Every transition writes one `user_events` row whose
  * payload holds field names / counts only, never business data (PDPA).
  *
- * State guards: each owner decision re-checks the expected status inside the repo update
- * (`updateBusinessProfile` returns null when it no longer matches), so a double-click or a race
- * yields INVALID_FROM_STATE and no second audit row.
+ * State guards: each owner decision re-checks the expected status and the `updated_at` the owner's
+ * detail view showed inside the repo update (`updateBusinessProfile` returns null when either no
+ * longer matches), so a double-click, a race or a customer edit the owner has not seen yields
+ * INVALID_FROM_STATE and no audit row (the owner decides on the data they saw).
  */
 import type { B2bApplyRequest, BusinessDocumentRow, BusinessProfileRow, UserRow } from '@datawan/shared';
 import type { Deps } from '../deps';
@@ -116,10 +117,13 @@ export async function applyB2b(deps: Deps, user: UserRow, input: B2bApplyInput):
   return { ok: true, profile };
 }
 
-export async function approveB2b(deps: Deps, userId: string, ownerId: string): Promise<B2bResult> {
+/** True when the profile changed since the owner's view (`updated_at` compared exactly as stored). */
+const changedSinceView = (p: BusinessProfileRow, expectedUpdatedAt: string) => p.updated_at !== expectedUpdatedAt;
+
+export async function approveB2b(deps: Deps, userId: string, ownerId: string, expectedUpdatedAt: string): Promise<B2bResult> {
   const existing = await deps.repo.getBusinessProfile(userId);
   if (!existing) return fail('NOT_FOUND');
-  if (existing.status !== 'PENDING_VERIFICATION') return invalid();
+  if (existing.status !== 'PENDING_VERIFICATION' || changedSinceView(existing, expectedUpdatedAt)) return invalid();
   const nowIso = deps.now().toISOString();
   const profile = await deps.repo.updateBusinessProfile(userId, 'PENDING_VERIFICATION', {
     status: 'VERIFIED',
@@ -129,39 +133,39 @@ export async function approveB2b(deps: Deps, userId: string, ownerId: string): P
     rejection_reason: null,
     needs_rereview: false,
     rereview_fields: [],
-  });
+  }, expectedUpdatedAt);
   if (!profile) return invalid();
   await deps.repo.setUserB2B(userId, { user_type: 'B2B', business_name: profile.business_name, default_delivery_window: profile.default_delivery_window });
   await deps.repo.insertUserEvent({ user_id: userId, actor: 'owner', event: 'B2B_APPROVED', payload: {} });
   return { ok: true, profile };
 }
 
-export async function rejectB2b(deps: Deps, userId: string, ownerId: string, reason: string): Promise<B2bResult> {
+export async function rejectB2b(deps: Deps, userId: string, ownerId: string, reason: string, expectedUpdatedAt: string): Promise<B2bResult> {
   const existing = await deps.repo.getBusinessProfile(userId);
   if (!existing) return fail('NOT_FOUND');
-  if (existing.status !== 'PENDING_VERIFICATION') return invalid();
+  if (existing.status !== 'PENDING_VERIFICATION' || changedSinceView(existing, expectedUpdatedAt)) return invalid();
   const profile = await deps.repo.updateBusinessProfile(userId, 'PENDING_VERIFICATION', {
     status: 'REJECTED',
     rejection_reason: reason.trim(),
     decided_at: deps.now().toISOString(),
     decided_by: ownerId,
-  });
+  }, expectedUpdatedAt);
   if (!profile) return invalid();
   await deps.repo.setUserB2B(userId, { user_type: 'B2C', business_name: null, default_delivery_window: null });
   await deps.repo.insertUserEvent({ user_id: userId, actor: 'owner', event: 'B2B_REJECTED', payload: {} });
   return { ok: true, profile };
 }
 
-export async function acknowledgeB2b(deps: Deps, userId: string, ownerId: string): Promise<B2bResult> {
+export async function acknowledgeB2b(deps: Deps, userId: string, ownerId: string, expectedUpdatedAt: string): Promise<B2bResult> {
   const existing = await deps.repo.getBusinessProfile(userId);
   if (!existing) return fail('NOT_FOUND');
-  if (existing.status !== 'VERIFIED' || !existing.needs_rereview) return invalid();
+  if (existing.status !== 'VERIFIED' || !existing.needs_rereview || changedSinceView(existing, expectedUpdatedAt)) return invalid();
   const profile = await deps.repo.updateBusinessProfile(userId, 'VERIFIED', {
     needs_rereview: false,
     rereview_fields: [],
     decided_at: deps.now().toISOString(),
     decided_by: ownerId,
-  });
+  }, expectedUpdatedAt);
   if (!profile) return invalid();
   // Conditional on user_type = 'B2B': a racing revoke stays revoked.
   await deps.repo.updateUserB2bDetails(userId, { business_name: profile.business_name, default_delivery_window: profile.default_delivery_window });
@@ -169,10 +173,10 @@ export async function acknowledgeB2b(deps: Deps, userId: string, ownerId: string
   return { ok: true, profile };
 }
 
-export async function revokeB2b(deps: Deps, userId: string, ownerId: string, reason: string): Promise<B2bResult> {
+export async function revokeB2b(deps: Deps, userId: string, ownerId: string, reason: string, expectedUpdatedAt: string): Promise<B2bResult> {
   const existing = await deps.repo.getBusinessProfile(userId);
   if (!existing) return fail('NOT_FOUND');
-  if (existing.status !== 'VERIFIED') return invalid();
+  if (existing.status !== 'VERIFIED' || changedSinceView(existing, expectedUpdatedAt)) return invalid();
   const profile = await deps.repo.updateBusinessProfile(userId, 'VERIFIED', {
     status: 'REJECTED',
     rejection_reason: reason.trim(),
@@ -180,7 +184,7 @@ export async function revokeB2b(deps: Deps, userId: string, ownerId: string, rea
     rereview_fields: [],
     decided_at: deps.now().toISOString(),
     decided_by: ownerId,
-  });
+  }, expectedUpdatedAt);
   if (!profile) return invalid();
   await deps.repo.setUserB2B(userId, { user_type: 'B2C', business_name: null, default_delivery_window: null });
   await deps.repo.insertUserEvent({ user_id: userId, actor: 'owner', event: 'B2B_REVOKED', payload: {} });

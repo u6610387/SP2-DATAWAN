@@ -856,7 +856,7 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     // 5. Owner approves (a minute later, so the document predates the decision).
     vi.setSystemTime(Date.now() + 60_000);
     try {
-      const approved = await web.approveB2bCustomer(OWNER_TOKEN, aId);
+      const approved = await web.approveB2bCustomer(OWNER_TOKEN, aId, detail.updatedAt);
       expect(approved.status).toBe('VERIFIED');
       expect(await profileRow(aId)).toMatchObject({ status: 'VERIFIED', decided_by: OWNER_AUTH });
       expect(await userRow(aId)).toEqual({ user_type: 'B2B', business_name: SHOP });
@@ -873,16 +873,17 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
       expect(await profileRow(aId)).toMatchObject({ status: 'VERIFIED', needs_rereview: true });
       expect(await userRow(aId)).toEqual({ user_type: 'B2B', business_name: SHOP });
       expect((await ownerGet(orderId)).customer.b2b!.businessName).toBe(SHOP);
-      expect((await web.getB2bCustomer(OWNER_TOKEN, aId)).rereviewFields).toEqual(['business_name']);
+      const rereview = await web.getB2bCustomer(OWNER_TOKEN, aId);
+      expect(rereview.rereviewFields).toEqual(['business_name']);
 
-      // 8. Owner acknowledges: the new name becomes the badge name.
-      const acked = await web.acknowledgeB2bCustomer(OWNER_TOKEN, aId);
+      // 8. Owner acknowledges what they saw: the new name becomes the badge name.
+      const acked = await web.acknowledgeB2bCustomer(OWNER_TOKEN, aId, rereview.updatedAt);
       expect(acked).toMatchObject({ status: 'VERIFIED', needsRereview: false });
       expect(await userRow(aId)).toEqual({ user_type: 'B2B', business_name: SHOP_RENAMED });
       expect((await ownerGet(orderId)).customer.b2b!.businessName).toBe(SHOP_RENAMED);
 
       // 9. Owner revokes: back to B2C, no badge, no anchor.
-      const revoked = await web.revokeB2bCustomer(OWNER_TOKEN, aId, REVOKE_REASON);
+      const revoked = await web.revokeB2bCustomer(OWNER_TOKEN, aId, REVOKE_REASON, acked.updatedAt);
       expect(revoked).toMatchObject({ status: 'REJECTED', rejectionReason: REVOKE_REASON });
       expect((await userRow(aId)).user_type).toBe('B2C');
       own = await ownerGet(orderId);
@@ -893,7 +894,7 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
       const docB1 = await uploadDoc(authB);
       await apply(authB, SHOP_B, [docB1]);
       const bId = await userIdOf(B);
-      await web.rejectB2bCustomer(OWNER_TOKEN, bId, REJECT_REASON);
+      await web.rejectB2bCustomer(OWNER_TOKEN, bId, REJECT_REASON, (await web.getB2bCustomer(OWNER_TOKEN, bId)).updatedAt);
       expect(await profileRow(bId)).toMatchObject({ status: 'REJECTED', decided_by: OWNER_AUTH });
       expect(await web.getAccount(authB)).toMatchObject({ type: 'B2C', b2b: { status: 'REJECTED', rejectionReason: REJECT_REASON } });
       const docB2 = await uploadDoc(authB);
@@ -902,9 +903,19 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
       expect((await docRows(bId)).map((d) => d.path)).toEqual([docB2]);
       expect(storage.objects.has(docB1)).toBe(false);
 
+      // 10b. The owner opened B's application, then B edited it: approving what the owner saw is a
+      //      409 on real Postgres (updated_at compared as stored), nothing is decided (§3.1).
+      const seenB = (await web.getB2bCustomer(OWNER_TOKEN, bId)).updatedAt;
+      vi.setSystemTime(Date.now() + 1_000); // the clock is frozen here; in production time passes between requests
+      await apply(authB, SHOP_B, [docB2]);
+      await expect(web.approveB2bCustomer(OWNER_TOKEN, bId, seenB)).rejects.toMatchObject({ status: 409, code: 'INVALID_FROM_STATE' });
+      expect((await profileRow(bId)).status).toBe('PENDING_VERIFICATION');
+      expect((await userRow(bId)).user_type).toBe('B2C');
+      expect((await db.query(`select 1 from user_events where user_id = $1 and event = 'B2B_APPROVED'`, [bId])).rows).toEqual([]);
+
       // 11. An owner decision on an unknown customer is a 404 and writes nothing.
       const before = await eventCount();
-      await expect(web.approveB2bCustomer(OWNER_TOKEN, crypto.randomUUID())).rejects.toMatchObject({ status: 404 });
+      await expect(web.approveB2bCustomer(OWNER_TOKEN, crypto.randomUUID(), detail.updatedAt)).rejects.toMatchObject({ status: 404 });
       expect(await eventCount()).toBe(before);
 
       // 12. 31 days after the decision the daily cleanup purges A's pre-decision document (rows and
@@ -959,7 +970,7 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
       const cId = (await db.query<{ id: string }>('select id from users where line_user_id = $1', [C])).rows[0]!.id;
 
       vi.setSystemTime(Date.now() + MIN);
-      await web.approveB2bCustomer(OWNER_TOKEN, cId);
+      await web.approveB2bCustomer(OWNER_TOKEN, cId, (await web.getB2bCustomer(OWNER_TOKEN, cId)).updatedAt);
       const approvedAt = Date.now();
 
       vi.setSystemTime(Date.now() + MIN);

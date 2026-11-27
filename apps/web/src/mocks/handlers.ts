@@ -157,6 +157,9 @@ export async function mockFetch<T>(path: string, opts: RequestOptions): Promise<
     if (!c) throw new ApiRequestError(404, 'NOT_FOUND', 'customer not found');
     const action = custMatch[2];
     const now = new Date().toISOString();
+    // Same guard as the worker: a decision on a view the application has moved past is a 409.
+    if (action && body?.expectedUpdatedAt !== c.updatedAt) throw new ApiRequestError(409, 'INVALID_FROM_STATE', 'state changed');
+    if (action) c.updatedAt = now;
     if (action === 'approve' || action === 'reject') {
       if (c.status !== 'PENDING_VERIFICATION') throw new ApiRequestError(409, 'INVALID_FROM_STATE', 'state changed');
       c.status = action === 'approve' ? 'VERIFIED' : 'REJECTED';

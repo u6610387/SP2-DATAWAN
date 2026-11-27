@@ -84,15 +84,17 @@ export function listB2bCustomers(token: string, filter: B2bFilter): Promise<Owne
 export function getB2bCustomer(token: string, userId: string): Promise<OwnerB2bDetailView> {
   return ownerFetch<OwnerB2bDetailView>(`/api/owner/customers/${userId}`, token);
 }
-export function approveB2bCustomer(token: string, userId: string): Promise<OwnerB2bDetailView> {
-  return ownerFetch<OwnerB2bDetailView>(`/api/owner/customers/${userId}/approve`, token, { method: 'POST' });
+// Every decision sends back the `updatedAt` of the detail view the owner looked at: if the
+// customer changed the application since, the worker answers 409 and the page refetches (§3.1).
+export function approveB2bCustomer(token: string, userId: string, expectedUpdatedAt: string): Promise<OwnerB2bDetailView> {
+  return ownerFetch<OwnerB2bDetailView>(`/api/owner/customers/${userId}/approve`, token, { method: 'POST', body: { expectedUpdatedAt } });
 }
-export function rejectB2bCustomer(token: string, userId: string, reason: string): Promise<OwnerB2bDetailView> {
-  return ownerFetch<OwnerB2bDetailView>(`/api/owner/customers/${userId}/reject`, token, { method: 'POST', body: { reason } });
+export function rejectB2bCustomer(token: string, userId: string, reason: string, expectedUpdatedAt: string): Promise<OwnerB2bDetailView> {
+  return ownerFetch<OwnerB2bDetailView>(`/api/owner/customers/${userId}/reject`, token, { method: 'POST', body: { reason, expectedUpdatedAt } });
 }
-export function acknowledgeB2bCustomer(token: string, userId: string): Promise<OwnerB2bDetailView> {
-  return ownerFetch<OwnerB2bDetailView>(`/api/owner/customers/${userId}/acknowledge`, token, { method: 'POST' });
+export function acknowledgeB2bCustomer(token: string, userId: string, expectedUpdatedAt: string): Promise<OwnerB2bDetailView> {
+  return ownerFetch<OwnerB2bDetailView>(`/api/owner/customers/${userId}/acknowledge`, token, { method: 'POST', body: { expectedUpdatedAt } });
 }
-export function revokeB2bCustomer(token: string, userId: string, reason: string): Promise<OwnerB2bDetailView> {
-  return ownerFetch<OwnerB2bDetailView>(`/api/owner/customers/${userId}/revoke`, token, { method: 'POST', body: { reason } });
+export function revokeB2bCustomer(token: string, userId: string, reason: string, expectedUpdatedAt: string): Promise<OwnerB2bDetailView> {
+  return ownerFetch<OwnerB2bDetailView>(`/api/owner/customers/${userId}/revoke`, token, { method: 'POST', body: { reason, expectedUpdatedAt } });
 }

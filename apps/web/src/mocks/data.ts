@@ -129,12 +129,12 @@ export const mockB2bCustomers: OwnerB2bDetailView[] = [
     userId: 'b2b-pending-1', customerName: 'คุณทดสอบ', businessName: 'ร้านครัวทดสอบ', businessType: 'restaurant', status: 'PENDING_VERIFICATION', needsRereview: false,
     submittedAt: '2026-11-27T01:00:00.000Z', phone: '0800000001', addressText: '1 ถนนทดสอบ เขตธนบุรี กรุงเทพฯ', lat: 13.72, lng: 100.49,
     mapUrl: 'https://www.openstreetmap.org/?mlat=13.72&mlon=100.49', deliveryWindow: '06:00-08:00', taxId: '0000000000000', taxIdValid: false,
-    rereviewFields: [], rejectionReason: null, decidedAt: null, verifiedAt: null, documents: [],
+    rereviewFields: [], rejectionReason: null, decidedAt: null, verifiedAt: null, updatedAt: '2026-11-27T01:00:00.000Z', documents: [],
   },
   {
     userId: 'b2b-verified-1', customerName: 'คุณตัวอย่าง', businessName: 'ร้านอาหารตัวอย่าง', businessType: 'restaurant', status: 'VERIFIED', needsRereview: true,
     submittedAt: '2026-11-20T01:00:00.000Z', phone: '0800000002', addressText: '2 ถนนตัวอย่าง เขตธนบุรี กรุงเทพฯ', lat: null, lng: null,
     mapUrl: null, deliveryWindow: '05:30-07:00', taxId: null, taxIdValid: null,
-    rereviewFields: ['addressText'], rejectionReason: null, decidedAt: '2026-11-21T01:00:00.000Z', verifiedAt: '2026-11-21T01:00:00.000Z', documents: [],
+    rereviewFields: ['addressText'], rejectionReason: null, decidedAt: '2026-11-21T01:00:00.000Z', verifiedAt: '2026-11-21T01:00:00.000Z', updatedAt: '2026-11-22T01:00:00.000Z', documents: [],
   },
 ];

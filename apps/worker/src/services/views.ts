@@ -209,6 +209,7 @@ export function toOwnerB2bDetailView(profile: BusinessProfileRow, user: UserRow 
     rejectionReason: profile.rejection_reason,
     decidedAt: profile.decided_at,
     verifiedAt: profile.verified_at,
+    updatedAt: profile.updated_at,
     documents: docs,
   };
 }

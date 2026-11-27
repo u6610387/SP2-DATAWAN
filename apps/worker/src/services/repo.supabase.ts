@@ -256,11 +256,15 @@ export class SupabaseRepo implements Repo {
   async upsertBusinessProfile(p: Omit<import('@datawan/shared').BusinessProfileRow, 'created_at' | 'updated_at'>) {
     return must(await this.db.from('business_profiles').upsert(p, { onConflict: 'user_id' }).select().single(), 'upsertBusinessProfile');
   }
-  async updateBusinessProfile(userId: string, expectedStatus: import('@datawan/shared').B2bStatus, patch: Partial<import('@datawan/shared').BusinessProfileRow>) {
-    return must(
-      await this.db.from('business_profiles').update(patch).eq('user_id', userId).eq('status', expectedStatus).select().maybeSingle(),
-      'updateBusinessProfile',
-    );
+  async updateBusinessProfile(
+    userId: string,
+    expectedStatus: import('@datawan/shared').B2bStatus,
+    patch: Partial<import('@datawan/shared').BusinessProfileRow>,
+    expectedUpdatedAt?: string,
+  ) {
+    let q = this.db.from('business_profiles').update(patch).eq('user_id', userId).eq('status', expectedStatus);
+    if (expectedUpdatedAt !== undefined) q = q.eq('updated_at', expectedUpdatedAt);
+    return must(await q.select().maybeSingle(), 'updateBusinessProfile');
   }
   async listBusinessProfiles(filter: 'pending' | 'b2b' | 'all') {
     let q = this.db.from('business_profiles').select('*');

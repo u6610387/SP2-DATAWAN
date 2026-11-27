@@ -150,8 +150,8 @@ export interface PaymentCheckView {
 | POST | `/api/owner/push-subscriptions` | `PushSubscriptionJSON` | `204` |
 | GET | `/api/owner/customers?filter=pending\|b2b\|all` | – | `OwnerB2bSummaryView[]` (§2.3a) |
 | GET | `/api/owner/customers/:userId` | – | `OwnerB2bDetailView` (§2.3a) |
-| POST | `/api/owner/customers/:userId/approve` · `/acknowledge` | – | `OwnerB2bDetailView`; 409 `INVALID_FROM_STATE`, 404 unknown user (§2.3a) |
-| POST | `/api/owner/customers/:userId/reject` · `/revoke` | `OwnerB2bReasonRequest { reason }` | `OwnerB2bDetailView`; 409 `INVALID_FROM_STATE`, 404 unknown user (§2.3a) |
+| POST | `/api/owner/customers/:userId/approve` · `/acknowledge` | `OwnerB2bDecisionRequest { expectedUpdatedAt }` | `OwnerB2bDetailView`; 409 `INVALID_FROM_STATE` (wrong state or changed since the view), 404 unknown user (§2.3a) |
+| POST | `/api/owner/customers/:userId/reject` · `/revoke` | `OwnerB2bReasonRequest { reason, expectedUpdatedAt }` | `OwnerB2bDetailView`; 409 `INVALID_FROM_STATE` (wrong state or changed since the view), 404 unknown user (§2.3a) |
 
 ```ts
 export interface QuotaStatus {
@@ -176,10 +176,12 @@ Owner-only decisions (CLAUDE.md §3.1): approve / reject / acknowledge / revoke 
 | POST | `/api/liff/account/b2b` | `B2bApplyRequest` | `CustomerAccountView` |
 | GET | `/api/owner/customers?filter=pending\|b2b\|all` | – | `OwnerB2bSummaryView[]` |
 | GET | `/api/owner/customers/:userId` | – | `OwnerB2bDetailView` (signed doc URLs, 300 s) |
-| POST | `/api/owner/customers/:userId/approve` | – | `OwnerB2bDetailView` |
+| POST | `/api/owner/customers/:userId/approve` | `OwnerB2bDecisionRequest` | `OwnerB2bDetailView` |
 | POST | `/api/owner/customers/:userId/reject` | `OwnerB2bReasonRequest` | `OwnerB2bDetailView` |
-| POST | `/api/owner/customers/:userId/acknowledge` | – | `OwnerB2bDetailView` (clears `needsRereview`) |
+| POST | `/api/owner/customers/:userId/acknowledge` | `OwnerB2bDecisionRequest` | `OwnerB2bDetailView` (clears `needsRereview`) |
 | POST | `/api/owner/customers/:userId/revoke` | `OwnerB2bReasonRequest` | `OwnerB2bDetailView` |
+
+**The owner decides on the data they saw.** `OwnerB2bDetailView.updatedAt` is the profile's `updated_at`. Every decision body carries it back as `expectedUpdatedAt` (`OwnerB2bDecisionRequest { expectedUpdatedAt }`; `OwnerB2bReasonRequest { reason, expectedUpdatedAt }`, reason trimmed 1–200). The worker matches it exactly, as stored, inside the guarded update. If the customer changed the application after the owner's view, the answer is 409 `INVALID_FROM_STATE`, nothing is decided and no audit row is written. The dashboard then refetches the detail. A missing `expectedUpdatedAt` is 400 `VALIDATION_FAILED`.
 
 `isValidThaiTaxId()` (`packages/shared/src/taxId.ts`) is a checksum flag (`taxIdValid`) only; it never approves. `OwnerOrderView.customer.b2b` is `{ businessName, deliveryWindow } | null`.
 

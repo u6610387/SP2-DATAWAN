@@ -145,8 +145,16 @@ export interface Repo {
   // ---- B2B verification ----
   getBusinessProfile(userId: string): Promise<BusinessProfileRow | null>;
   upsertBusinessProfile(p: Omit<BusinessProfileRow, 'created_at' | 'updated_at'>): Promise<BusinessProfileRow>;
-  /** Conditional update (where user_id and status = expectedStatus); null when the status no longer matches. */
-  updateBusinessProfile(userId: string, expectedStatus: B2bStatus, patch: Partial<BusinessProfileRow>): Promise<BusinessProfileRow | null>;
+  /**
+   * Conditional update (where user_id and status = expectedStatus, and updated_at = expectedUpdatedAt
+   * when given); null when the row no longer matches.
+   */
+  updateBusinessProfile(
+    userId: string,
+    expectedStatus: B2bStatus,
+    patch: Partial<BusinessProfileRow>,
+    expectedUpdatedAt?: string,
+  ): Promise<BusinessProfileRow | null>;
   /** 'pending' = PENDING_VERIFICATION or needs_rereview; 'b2b' = VERIFIED; newest submission first. */
   listBusinessProfiles(filter: 'pending' | 'b2b' | 'all'): Promise<BusinessProfileRow[]>;
   setUserB2B(userId: string, patch: { user_type: 'B2C' | 'B2B'; business_name: string | null; default_delivery_window: string | null }): Promise<UserRow>;

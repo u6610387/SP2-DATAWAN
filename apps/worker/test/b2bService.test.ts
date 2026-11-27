@@ -33,6 +33,10 @@ const input = (over: Partial<B2bApplyInput> = {}): B2bApplyInput => ({
   ...over,
 });
 
+/** The profile updated_at an owner's detail view would show right now (the M1 guard). */
+const stamp = async (s: { repo: { getBusinessProfile(id: string): Promise<{ updated_at: string } | null> } }) =>
+  (await s.repo.getBusinessProfile(UID))?.updated_at ?? 'no-profile';
+
 async function setup() {
   const h = makeHarness();
   const user = (await h.repo.getUser(UID)) as UserRow;
@@ -45,7 +49,7 @@ async function setup() {
 async function verified() {
   const s = await setup();
   await applyB2b(s.deps, s.user, input());
-  await approveB2b(s.deps, UID, OWNER_AUTH);
+  await approveB2b(s.deps, UID, OWNER_AUTH, await stamp(s));
   s.notifier.alerts.length = 0;
   return s;
 }
@@ -81,7 +85,7 @@ describe('B2B service — applyB2b', () => {
   it('REJECTED → apply again → PENDING_VERIFICATION with decision fields cleared', async () => {
     const s = await setup();
     await applyB2b(s.deps, s.user, input());
-    await rejectB2b(s.deps, UID, OWNER_AUTH, REASON);
+    await rejectB2b(s.deps, UID, OWNER_AUTH, REASON, await stamp(s));
     const r = await applyB2b(s.deps, s.user, input());
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -114,7 +118,7 @@ describe('B2B service — applyB2b', () => {
     expect(r2.ok && r2.profile.rereview_fields).toEqual(['business_name', 'tax_id']);
     expect(s.alerts('B2B_REREVIEW').length).toBe(1);
 
-    const a = await acknowledgeB2b(s.deps, UID, OWNER_AUTH);
+    const a = await acknowledgeB2b(s.deps, UID, OWNER_AUTH, await stamp(s));
     expect(a.ok).toBe(true);
     if (!a.ok) return;
     expect(a.profile.needs_rereview).toBe(false);
@@ -163,7 +167,7 @@ describe('B2B service — owner decisions', () => {
   it('approve PENDING → VERIFIED, users B2B, B2B_APPROVED (owner)', async () => {
     const s = await setup();
     await applyB2b(s.deps, s.user, input());
-    const r = await approveB2b(s.deps, UID, OWNER_AUTH);
+    const r = await approveB2b(s.deps, UID, OWNER_AUTH, await stamp(s));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const now = s.clock.now().toISOString();
@@ -176,9 +180,46 @@ describe('B2B service — owner decisions', () => {
   it('approve twice → second INVALID_FROM_STATE, exactly one B2B_APPROVED (Review Focus 2)', async () => {
     const s = await setup();
     await applyB2b(s.deps, s.user, input());
-    expect((await approveB2b(s.deps, UID, OWNER_AUTH)).ok).toBe(true);
-    expect(await approveB2b(s.deps, UID, OWNER_AUTH)).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
+    expect((await approveB2b(s.deps, UID, OWNER_AUTH, await stamp(s))).ok).toBe(true);
+    expect(await approveB2b(s.deps, UID, OWNER_AUTH, await stamp(s))).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
     expect((await s.events()).filter((e) => e === 'B2B_APPROVED').length).toBe(1);
+  });
+
+  it('a decision with a stale updatedAt (customer edited after the owner\'s view) → INVALID_FROM_STATE, nothing changes (M1)', async () => {
+    const s = await setup();
+    await applyB2b(s.deps, s.user, input());
+    const seen = await stamp(s);
+    await applyB2b(s.deps, s.user, input({ addressText: '7 ถนนแก้ไขทดสอบ' }));
+    for (const r of [await approveB2b(s.deps, UID, OWNER_AUTH, seen), await rejectB2b(s.deps, UID, OWNER_AUTH, REASON, seen)]) {
+      expect(r).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
+    }
+    expect((await s.repo.getBusinessProfile(UID))?.status).toBe('PENDING_VERIFICATION');
+    expect(await s.events()).toEqual(['B2B_APPLIED', 'B2B_UPDATED']);
+    expect((await s.fresh()).user_type).toBe('B2C');
+
+    // Verified shop: acknowledge / revoke with the pre-edit stamp are refused too.
+    expect((await approveB2b(s.deps, UID, OWNER_AUTH, await stamp(s))).ok).toBe(true);
+    await applyB2b(s.deps, await s.fresh(), input({ businessName: NEW_NAME }));
+    const seen2 = await stamp(s);
+    await applyB2b(s.deps, await s.fresh(), input({ businessName: NEW_NAME, taxId: null }));
+    expect(await acknowledgeB2b(s.deps, UID, OWNER_AUTH, seen2)).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
+    expect(await revokeB2b(s.deps, UID, OWNER_AUTH, REASON, seen2)).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
+    expect((await s.events()).filter((e) => e === 'B2B_ACKNOWLEDGED' || e === 'B2B_REVOKED')).toEqual([]);
+  });
+
+  it('the stamp is also matched inside the guarded update (a write between read and update)', async () => {
+    const s = await setup();
+    await applyB2b(s.deps, s.user, input());
+    const seen = await stamp(s);
+    const real = s.repo.updateBusinessProfile.bind(s.repo);
+    s.repo.updateBusinessProfile = async (userId, expected, patch, expectedUpdatedAt) => {
+      s.repo.updateBusinessProfile = real;
+      await real(UID, 'PENDING_VERIFICATION', { address_text: '8 ถนนแข่งทดสอบ' }); // the customer's edit lands first
+      return real(userId, expected, patch, expectedUpdatedAt);
+    };
+    expect(await approveB2b(s.deps, UID, OWNER_AUTH, seen)).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
+    expect((await s.repo.getBusinessProfile(UID))?.status).toBe('PENDING_VERIFICATION');
+    expect((await s.events()).includes('B2B_APPROVED')).toBe(false);
   });
 
   it('a guarded update losing the race → INVALID_FROM_STATE, no event', async () => {
@@ -186,7 +227,7 @@ describe('B2B service — owner decisions', () => {
     await applyB2b(s.deps, s.user, input());
     const real = s.repo.updateBusinessProfile.bind(s.repo);
     s.repo.updateBusinessProfile = async () => null;
-    expect(await approveB2b(s.deps, UID, OWNER_AUTH)).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
+    expect(await approveB2b(s.deps, UID, OWNER_AUTH, await stamp(s))).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
     s.repo.updateBusinessProfile = real;
     expect(await s.events()).toEqual(['B2B_APPLIED']);
     expect((await s.fresh()).user_type).toBe('B2C');
@@ -195,17 +236,17 @@ describe('B2B service — owner decisions', () => {
   it('NOT_FOUND when there is no profile', async () => {
     const s = await setup();
     for (const r of [
-      await approveB2b(s.deps, UID, OWNER_AUTH),
-      await rejectB2b(s.deps, UID, OWNER_AUTH, REASON),
-      await acknowledgeB2b(s.deps, UID, OWNER_AUTH),
-      await revokeB2b(s.deps, UID, OWNER_AUTH, REASON),
+      await approveB2b(s.deps, UID, OWNER_AUTH, await stamp(s)),
+      await rejectB2b(s.deps, UID, OWNER_AUTH, REASON, await stamp(s)),
+      await acknowledgeB2b(s.deps, UID, OWNER_AUTH, await stamp(s)),
+      await revokeB2b(s.deps, UID, OWNER_AUTH, REASON, await stamp(s)),
     ]) expect(r).toEqual({ ok: false, reason: 'NOT_FOUND' });
   });
 
   it('reject PENDING → REJECTED with reason, users B2C, B2B_REJECTED {}', async () => {
     const s = await setup();
     await applyB2b(s.deps, s.user, input());
-    const r = await rejectB2b(s.deps, UID, OWNER_AUTH, `  ${REASON} `);
+    const r = await rejectB2b(s.deps, UID, OWNER_AUTH, `  ${REASON} `, await stamp(s));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.profile).toMatchObject({ status: 'REJECTED', rejection_reason: REASON, decided_by: OWNER_AUTH, decided_at: s.clock.now().toISOString() });
@@ -213,33 +254,33 @@ describe('B2B service — owner decisions', () => {
     expect([u.user_type, u.business_name, u.default_delivery_window]).toEqual(['B2C', null, null]);
     expect((await s.repo.listUserEvents(UID)).at(-1)).toMatchObject({ event: 'B2B_REJECTED', actor: 'owner', payload: {} });
     // Reject is only from PENDING.
-    expect(await rejectB2b(s.deps, UID, OWNER_AUTH, REASON)).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
+    expect(await rejectB2b(s.deps, UID, OWNER_AUTH, REASON, await stamp(s))).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
   });
 
   it('acknowledge requires VERIFIED with needs_rereview', async () => {
     const s = await verified();
-    expect(await acknowledgeB2b(s.deps, UID, OWNER_AUTH)).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
+    expect(await acknowledgeB2b(s.deps, UID, OWNER_AUTH, await stamp(s))).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
   });
 
   it('revoke VERIFIED → REJECTED, needs_rereview false, users B2C, B2B_REVOKED {}', async () => {
     const s = await verified();
     await applyB2b(s.deps, await s.fresh(), input({ businessName: NEW_NAME }));
     s.clock.advance(60);
-    const r = await revokeB2b(s.deps, UID, OWNER_AUTH, REASON);
+    const r = await revokeB2b(s.deps, UID, OWNER_AUTH, REASON, await stamp(s));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.profile).toMatchObject({ status: 'REJECTED', rejection_reason: REASON, needs_rereview: false, decided_by: OWNER_AUTH, decided_at: s.clock.now().toISOString() });
     const u = await s.fresh();
     expect([u.user_type, u.business_name, u.default_delivery_window]).toEqual(['B2C', null, null]);
     expect((await s.repo.listUserEvents(UID)).at(-1)).toMatchObject({ event: 'B2B_REVOKED', actor: 'owner', payload: {} });
-    expect(await revokeB2b(s.deps, UID, OWNER_AUTH, REASON)).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
+    expect(await revokeB2b(s.deps, UID, OWNER_AUTH, REASON, await stamp(s))).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
   });
 
   it('approve from REJECTED → INVALID_FROM_STATE', async () => {
     const s = await setup();
     await applyB2b(s.deps, s.user, input());
-    await rejectB2b(s.deps, UID, OWNER_AUTH, REASON);
-    expect(await approveB2b(s.deps, UID, OWNER_AUTH)).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
+    await rejectB2b(s.deps, UID, OWNER_AUTH, REASON, await stamp(s));
+    expect(await approveB2b(s.deps, UID, OWNER_AUTH, await stamp(s))).toEqual({ ok: false, reason: 'INVALID_FROM_STATE' });
   });
 });
 
@@ -248,12 +289,12 @@ describe('B2B service — races with an owner revoke (§3.1)', () => {
   function revokeAfterNextVerifiedUpdate(s: Awaited<ReturnType<typeof verified>>) {
     const real = s.repo.updateBusinessProfile.bind(s.repo);
     let fired = false;
-    s.repo.updateBusinessProfile = async (userId, expected, patch) => {
-      const out = await real(userId, expected, patch);
+    s.repo.updateBusinessProfile = async (userId, expected, patch, expectedUpdatedAt) => {
+      const out = await real(userId, expected, patch, expectedUpdatedAt);
       if (!fired && out && expected === 'VERIFIED' && patch.status === undefined) {
         fired = true;
         s.repo.updateBusinessProfile = real;
-        expect((await revokeB2b(s.deps, UID, OWNER_AUTH, REASON)).ok).toBe(true);
+        expect((await revokeB2b(s.deps, UID, OWNER_AUTH, REASON, await stamp(s))).ok).toBe(true);
       }
       return out;
     };
@@ -273,7 +314,7 @@ describe('B2B service — races with an owner revoke (§3.1)', () => {
     const s = await verified();
     await applyB2b(s.deps, await s.fresh(), input({ businessName: NEW_NAME }));
     revokeAfterNextVerifiedUpdate(s);
-    const r = await acknowledgeB2b(s.deps, UID, OWNER_AUTH);
+    const r = await acknowledgeB2b(s.deps, UID, OWNER_AUTH, await stamp(s));
     expect(r.ok).toBe(true);
     const u = await s.fresh();
     expect([u.user_type, u.business_name, u.default_delivery_window]).toEqual(['B2C', null, null]);
@@ -286,7 +327,7 @@ describe('B2B service — re-apply after REJECTED', () => {
     const storage = s.deps.storage as MemoryStorage;
     for (const n of [1, 2, 3]) await storage.upload('business-docs', doc(n).slice('business-docs/'.length), new Uint8Array([n]), 'image/jpeg');
     await applyB2b(s.deps, s.user, input({ documentPaths: [doc(1), doc(2), doc(3)] }));
-    await rejectB2b(s.deps, UID, OWNER_AUTH, REASON);
+    await rejectB2b(s.deps, UID, OWNER_AUTH, REASON, await stamp(s));
     await storage.upload('business-docs', doc(4).slice('business-docs/'.length), new Uint8Array([4]), 'image/jpeg');
 
     const r = await applyB2b(s.deps, s.user, input({ documentPaths: [doc(4)] }));
@@ -300,7 +341,7 @@ describe('B2B service — re-apply after REJECTED', () => {
   it('re-apply after REJECTED with no documents on file writes no purge event', async () => {
     const s = await setup();
     await applyB2b(s.deps, s.user, input());
-    await rejectB2b(s.deps, UID, OWNER_AUTH, REASON);
+    await rejectB2b(s.deps, UID, OWNER_AUTH, REASON, await stamp(s));
     await applyB2b(s.deps, s.user, input());
     expect(await s.events()).toEqual(['B2B_APPLIED', 'B2B_REJECTED', 'B2B_APPLIED']);
   });
@@ -311,12 +352,12 @@ describe('B2B service — audit PII guard', () => {
     const s = await setup();
     await applyB2b(s.deps, s.user, input({ documentPaths: [doc(1)] }));
     await applyB2b(s.deps, s.user, input());
-    await rejectB2b(s.deps, UID, OWNER_AUTH, REASON);
+    await rejectB2b(s.deps, UID, OWNER_AUTH, REASON, await stamp(s));
     await applyB2b(s.deps, s.user, input());
-    await approveB2b(s.deps, UID, OWNER_AUTH);
+    await approveB2b(s.deps, UID, OWNER_AUTH, await stamp(s));
     await applyB2b(s.deps, await s.fresh(), input({ businessName: NEW_NAME, taxId: '9876543210987' }));
-    await acknowledgeB2b(s.deps, UID, OWNER_AUTH);
-    await revokeB2b(s.deps, UID, OWNER_AUTH, REASON);
+    await acknowledgeB2b(s.deps, UID, OWNER_AUTH, await stamp(s));
+    await revokeB2b(s.deps, UID, OWNER_AUTH, REASON, await stamp(s));
     s.clock.advance((B2B_DOC_RETENTION_DAYS + 1) * 24 * 60);
     await purgeDecidedDocuments(s.deps);
     const json = JSON.stringify(await s.repo.listUserEvents(UID));
@@ -332,7 +373,7 @@ describe('B2B service — purgeDecidedDocuments', () => {
     for (const n of [1, 2]) await storage.upload('business-docs', doc(n).slice('business-docs/'.length), new Uint8Array([n]), 'image/jpeg');
     await applyB2b(s.deps, s.user, input({ documentPaths: [doc(1), doc(2)] }));
     s.clock.advance(1); // the owner decides after the upload
-    await approveB2b(s.deps, UID, OWNER_AUTH);
+    await approveB2b(s.deps, UID, OWNER_AUTH, await stamp(s));
 
     s.clock.advance((B2B_DOC_RETENTION_DAYS - 1) * 24 * 60);
     expect(await purgeDecidedDocuments(s.deps)).toBe(0);
@@ -352,7 +393,7 @@ describe('B2B service — purgeDecidedDocuments', () => {
     const s = await setup();
     await applyB2b(s.deps, s.user, input({ documentPaths: [doc(1)] }));
     s.clock.advance(1);
-    await approveB2b(s.deps, UID, OWNER_AUTH);
+    await approveB2b(s.deps, UID, OWNER_AUTH, await stamp(s));
     s.clock.advance((B2B_DOC_RETENTION_DAYS + 1) * 24 * 60);
     s.deps.storage.remove = async () => { throw new Error('storage down'); };
     await expect(purgeDecidedDocuments(s.deps)).rejects.toThrow('storage down');

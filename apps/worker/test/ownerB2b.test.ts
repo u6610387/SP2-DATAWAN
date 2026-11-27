@@ -24,7 +24,9 @@ async function setup() {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-  return { h, call };
+  /** The updatedAt the owner's detail view shows right now (sent back with every decision). */
+  const seen = async () => ((await (await call(`/${UID}`)).json()) as { updatedAt: string }).updatedAt;
+  return { h, call, seen, user };
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -84,21 +86,48 @@ describe('owner B2B routes', () => {
   });
 
   it('approve → VERIFIED detail, second approve → 409 INVALID_FROM_STATE, unknown user → 404', async () => {
-    const { call } = await setup();
-    const ok = await call(`/${UID}/approve`, {});
+    const { call, seen } = await setup();
+    const at = await seen();
+    const ok = await call(`/${UID}/approve`, { expectedUpdatedAt: at });
     expect(ok.status).toBe(200);
-    expect(((await ok.json()) as any).status).toBe('VERIFIED');
-    const again = await call(`/${UID}/approve`, {});
+    const v = (await ok.json()) as any;
+    expect(v.status).toBe('VERIFIED');
+    expect(v.updatedAt).not.toBe(at);
+    const again = await call(`/${UID}/approve`, { expectedUpdatedAt: v.updatedAt });
     expect(again.status).toBe(409);
     expect(((await again.json()) as any).error.code).toBe('INVALID_FROM_STATE');
-    expect((await call('/nobody/approve', {})).status).toBe(404);
+    expect((await call('/nobody/approve', { expectedUpdatedAt: at })).status).toBe(404);
+  });
+
+  it('every decision without expectedUpdatedAt is 400 VALIDATION_FAILED', async () => {
+    const { call } = await setup();
+    for (const [path, body] of [['approve', {}], ['acknowledge', {}], ['reject', { reason: 'x' }], ['revoke', { reason: 'x' }]] as const) {
+      const res = await call(`/${UID}/${path}`, body);
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as any).error.code).toBe('VALIDATION_FAILED');
+    }
+  });
+
+  it('approve with a stale updatedAt after a customer edit → 409, status unchanged, no B2B_APPROVED (M1)', async () => {
+    const { h, call, seen, user } = await setup();
+    const stale = await seen();
+    await applyB2b(h.deps, user, input({ businessName: 'Edited Kitchen' }));
+    const res = await call(`/${UID}/approve`, { expectedUpdatedAt: stale });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as any).error.code).toBe('INVALID_FROM_STATE');
+    expect((await h.repo.getBusinessProfile(UID))?.status).toBe('PENDING_VERIFICATION');
+    expect((await h.repo.listUserEvents(UID)).some((e) => e.event === 'B2B_APPROVED')).toBe(false);
+    expect((await h.repo.getUser(UID))?.user_type).toBe('B2C');
+    // After refetching, the owner can decide on what they now see.
+    expect((await call(`/${UID}/approve`, { expectedUpdatedAt: await seen() })).status).toBe(200);
   });
 
   it('reject needs a reason (400); with one it returns REJECTED with the reason', async () => {
-    const { call } = await setup();
-    expect((await call(`/${UID}/reject`, {})).status).toBe(400);
-    expect((await call(`/${UID}/reject`, { reason: '   ' })).status).toBe(400);
-    const res = await call(`/${UID}/reject`, { reason: 'unclear document' });
+    const { call, seen } = await setup();
+    const at = await seen();
+    expect((await call(`/${UID}/reject`, { expectedUpdatedAt: at })).status).toBe(400);
+    expect((await call(`/${UID}/reject`, { reason: '   ', expectedUpdatedAt: at })).status).toBe(400);
+    const res = await call(`/${UID}/reject`, { reason: 'unclear document', expectedUpdatedAt: at });
     expect(res.status).toBe(200);
     const v = (await res.json()) as any;
     expect(v.status).toBe('REJECTED');
@@ -106,12 +135,13 @@ describe('owner B2B routes', () => {
   });
 
   it('revoke needs a reason and a VERIFIED profile; acknowledge is 409 outside re-review', async () => {
-    const { call } = await setup();
-    expect((await call(`/${UID}/revoke`, { reason: 'x' })).status).toBe(409);
-    await call(`/${UID}/approve`, {});
-    expect((await call(`/${UID}/revoke`, {})).status).toBe(400);
-    expect((await call(`/${UID}/acknowledge`, {})).status).toBe(409);
-    const res = await call(`/${UID}/revoke`, { reason: 'closed' });
+    const { call, seen } = await setup();
+    expect((await call(`/${UID}/revoke`, { reason: 'x', expectedUpdatedAt: await seen() })).status).toBe(409);
+    await call(`/${UID}/approve`, { expectedUpdatedAt: await seen() });
+    const at = await seen();
+    expect((await call(`/${UID}/revoke`, { expectedUpdatedAt: at })).status).toBe(400);
+    expect((await call(`/${UID}/acknowledge`, { expectedUpdatedAt: at })).status).toBe(409);
+    const res = await call(`/${UID}/revoke`, { reason: 'closed', expectedUpdatedAt: at });
     expect(res.status).toBe(200);
     expect(((await res.json()) as any).status).not.toBe('VERIFIED');
   });

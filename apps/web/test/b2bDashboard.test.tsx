@@ -9,7 +9,7 @@ import { th } from '@/lib/i18n/th';
 const view = (p: Partial<OwnerB2bDetailView>): OwnerB2bDetailView => ({
   userId: 'u-fake', customerName: 'คุณทดสอบ', businessName: 'ร้านครัวทดสอบ', businessType: 'restaurant', status: 'PENDING_VERIFICATION', needsRereview: false,
   submittedAt: '2026-11-27T01:00:00.000Z', phone: '0800000000', addressText: '1 ถนนทดสอบ', lat: null, lng: null, mapUrl: null, deliveryWindow: '06:00-08:00',
-  taxId: '0000000000000', taxIdValid: null, rereviewFields: [], rejectionReason: null, decidedAt: null, verifiedAt: null, documents: [], ...p,
+  taxId: '0000000000000', taxIdValid: null, rereviewFields: [], rejectionReason: null, decidedAt: null, verifiedAt: null, updatedAt: '2026-11-27T01:00:00.000Z', documents: [], ...p,
 });
 const actions = (v: OwnerB2bDetailView) => renderToStaticMarkup(<B2bActions view={v} t={th} busy={false} onApprove={async () => {}} onReject={async () => {}} onAcknowledge={async () => {}} onRevoke={async () => {}} />);
 

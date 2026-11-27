@@ -18,6 +18,7 @@ import {
   DeliveredRequest,
   DispatchRequest,
   NegotiationRequest,
+  OwnerB2bDecisionRequest,
   OwnerB2bReasonRequest,
   type OwnerB2bDetailView,
   PushSubscriptionRequest,
@@ -185,17 +186,27 @@ export function createOwnerRoutes(deps: Deps) {
     return view ? c.json(view) : apiError(c, 'NOT_FOUND', 'customer not found', 404);
   };
 
-  app.post('/customers/:userId/approve', (c) => b2bDecision(c, (id) => approveB2b(deps, id, c.get('ownerId'))));
-  app.post('/customers/:userId/acknowledge', (c) => b2bDecision(c, (id) => acknowledgeB2b(deps, id, c.get('ownerId'))));
+  // Every decision carries the profile updatedAt the owner's detail view showed (§3.1): a customer
+  // edit since then is 409 INVALID_FROM_STATE and the dashboard refetches.
+  app.post('/customers/:userId/approve', async (c) => {
+    const body = OwnerB2bDecisionRequest.safeParse(await readJson(c));
+    if (!body.success) return apiError(c, 'VALIDATION_FAILED', 'expectedUpdatedAt is required', 400);
+    return b2bDecision(c, (id) => approveB2b(deps, id, c.get('ownerId'), body.data.expectedUpdatedAt));
+  });
+  app.post('/customers/:userId/acknowledge', async (c) => {
+    const body = OwnerB2bDecisionRequest.safeParse(await readJson(c));
+    if (!body.success) return apiError(c, 'VALIDATION_FAILED', 'expectedUpdatedAt is required', 400);
+    return b2bDecision(c, (id) => acknowledgeB2b(deps, id, c.get('ownerId'), body.data.expectedUpdatedAt));
+  });
   app.post('/customers/:userId/reject', async (c) => {
     const body = OwnerB2bReasonRequest.safeParse(await readJson(c));
-    if (!body.success) return apiError(c, 'VALIDATION_FAILED', 'reason is required (1-200 characters)', 400);
-    return b2bDecision(c, (id) => rejectB2b(deps, id, c.get('ownerId'), body.data.reason));
+    if (!body.success) return apiError(c, 'VALIDATION_FAILED', 'reason (1-200 characters) and expectedUpdatedAt are required', 400);
+    return b2bDecision(c, (id) => rejectB2b(deps, id, c.get('ownerId'), body.data.reason, body.data.expectedUpdatedAt));
   });
   app.post('/customers/:userId/revoke', async (c) => {
     const body = OwnerB2bReasonRequest.safeParse(await readJson(c));
-    if (!body.success) return apiError(c, 'VALIDATION_FAILED', 'reason is required (1-200 characters)', 400);
-    return b2bDecision(c, (id) => revokeB2b(deps, id, c.get('ownerId'), body.data.reason));
+    if (!body.success) return apiError(c, 'VALIDATION_FAILED', 'reason (1-200 characters) and expectedUpdatedAt are required', 400);
+    return b2bDecision(c, (id) => revokeB2b(deps, id, c.get('ownerId'), body.data.reason, body.data.expectedUpdatedAt));
   });
 
   app.get('/orders', async (c) => {

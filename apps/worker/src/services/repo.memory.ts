@@ -369,9 +369,15 @@ export class MemoryRepo implements Repo {
     this.businessProfiles.push(row);
     return { ...row };
   }
-  async updateBusinessProfile(userId: string, expectedStatus: import('@datawan/shared').B2bStatus, patch: Partial<import('@datawan/shared').BusinessProfileRow>) {
+  async updateBusinessProfile(
+    userId: string,
+    expectedStatus: import('@datawan/shared').B2bStatus,
+    patch: Partial<import('@datawan/shared').BusinessProfileRow>,
+    expectedUpdatedAt?: string,
+  ) {
     const p = this.businessProfiles.find((x) => x.user_id === userId);
     if (!p || p.status !== expectedStatus) return null;
+    if (expectedUpdatedAt !== undefined && p.updated_at !== expectedUpdatedAt) return null;
     Object.assign(p, patch, { updated_at: this.ts() });
     return { ...p };
   }

@@ -126,6 +126,8 @@ const BODY_SCHEMA: Record<string, keyof typeof Contracts> = {
   'POST /api/liff/orders/:param/slip-upload-url': 'SlipUploadUrlRequest',
   'POST /api/liff/orders/:param/slip': 'SlipSubmitRequest',
   'POST /api/liff/account/b2b/doc-upload-url': 'B2bDocUploadUrlRequest',
+  'POST /api/owner/customers/:param/approve': 'OwnerB2bDecisionRequest',
+  'POST /api/owner/customers/:param/acknowledge': 'OwnerB2bDecisionRequest',
   'POST /api/owner/customers/:param/reject': 'OwnerB2bReasonRequest',
   'POST /api/owner/customers/:param/revoke': 'OwnerB2bReasonRequest',
 };
@@ -207,7 +209,7 @@ const OwnerB2bDetailViewSchema = z.strictObject({
   phone: z.string().nullable(), addressText: z.string(), lat: z.number().nullable(), lng: z.number().nullable(),
   mapUrl: z.string().nullable(), deliveryWindow: z.string().nullable(), taxId: z.string().nullable(),
   taxIdValid: z.boolean().nullable(), rereviewFields: z.array(z.string()), rejectionReason: z.string().nullable(),
-  decidedAt: z.string().nullable(), verifiedAt: z.string().nullable(),
+  decidedAt: z.string().nullable(), verifiedAt: z.string().nullable(), updatedAt: z.string(),
   documents: z.array(z.strictObject({ id: z.string(), url: z.string() })),
 }) satisfies ZodType<OwnerB2bDetailView>;
 const UploadUrlSchema = z.strictObject({ uploadUrl: z.string(), path: z.string() });
@@ -249,13 +251,16 @@ describe('web B2B api.ts functions against the worker (response parses as its vi
     CustomerAccountViewSchema.parse(await web.applyB2b(liff, body('ร้านทดสอบสัญญา', [upload.path])));
     const list = z.array(OwnerB2bSummaryViewSchema).parse(await web.listB2bCustomers(OWNER_TOKEN, 'pending'));
     expect(list.map((x) => x.userId)).toEqual([userId]);
-    OwnerB2bDetailViewSchema.parse(await web.getB2bCustomer(OWNER_TOKEN, userId));
-    OwnerB2bDetailViewSchema.parse(await web.approveB2bCustomer(OWNER_TOKEN, userId));
+    const seen = OwnerB2bDetailViewSchema.parse(await web.getB2bCustomer(OWNER_TOKEN, userId));
+    const approved = OwnerB2bDetailViewSchema.parse(await web.approveB2bCustomer(OWNER_TOKEN, userId, seen.updatedAt));
+    expect(approved.status).toBe('VERIFIED');
+    // Each later decision sends the updatedAt the owner's (re-fetched) detail view would show.
+    const stamp = async () => (await h.repo.getBusinessProfile(userId))!.updated_at;
     await web.applyB2b(liff, body('ร้านทดสอบสัญญา ใหม่', [upload.path])); // rename → needs re-review
-    OwnerB2bDetailViewSchema.parse(await web.acknowledgeB2bCustomer(OWNER_TOKEN, userId));
-    OwnerB2bDetailViewSchema.parse(await web.revokeB2bCustomer(OWNER_TOKEN, userId, 'ทดสอบ'));
+    OwnerB2bDetailViewSchema.parse(await web.acknowledgeB2bCustomer(OWNER_TOKEN, userId, await stamp()));
+    OwnerB2bDetailViewSchema.parse(await web.revokeB2bCustomer(OWNER_TOKEN, userId, 'ทดสอบ', await stamp()));
     await web.applyB2b(liff, body('ร้านทดสอบสัญญา', [])); // re-apply after the revoke → pending again
-    OwnerB2bDetailViewSchema.parse(await web.rejectB2bCustomer(OWNER_TOKEN, userId, 'ทดสอบ'));
+    expect(OwnerB2bDetailViewSchema.parse(await web.rejectB2bCustomer(OWNER_TOKEN, userId, 'ทดสอบ', await stamp())).status).toBe('REJECTED');
 
     expect(called).toEqual([
       'GET /api/liff/account',

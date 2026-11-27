@@ -54,10 +54,10 @@ export default function CustomerDetailPage() {
             view={view}
             t={t}
             busy={busy}
-            onApprove={() => run(() => approveB2bCustomer(token!, userId))}
-            onReject={(r) => run(() => rejectB2bCustomer(token!, userId, r))}
-            onAcknowledge={() => run(() => acknowledgeB2bCustomer(token!, userId))}
-            onRevoke={(r) => run(() => revokeB2bCustomer(token!, userId, r))}
+            onApprove={() => run(() => approveB2bCustomer(token!, userId, view.updatedAt))}
+            onReject={(r) => run(() => rejectB2bCustomer(token!, userId, r, view.updatedAt))}
+            onAcknowledge={() => run(() => acknowledgeB2bCustomer(token!, userId, view.updatedAt))}
+            onRevoke={(r) => run(() => revokeB2bCustomer(token!, userId, r, view.updatedAt))}
           />
         </>
       )}

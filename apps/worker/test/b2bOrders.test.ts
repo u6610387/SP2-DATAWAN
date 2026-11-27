@@ -48,7 +48,7 @@ describe('B2B orders use verified status only', () => {
   it('after approval: anchor present and badge shows the shop name and window', async () => {
     const { h, apply, view, order } = await setup();
     await apply();
-    await approveB2b(h.deps, order.user_id, OWNER_AUTH);
+    await approveB2b(h.deps, order.user_id, OWNER_AUTH, (await h.repo.getBusinessProfile(order.user_id))!.updated_at);
     const v = await view();
     expect(v.b2bAnchorPriceSatang).not.toBeNull();
     expect(v.customer.b2b).toEqual({ businessName: SHOP, deliveryWindow: '06:00-08:00' });
@@ -57,9 +57,9 @@ describe('B2B orders use verified status only', () => {
   it('after revoke: the same open order loses badge and anchor', async () => {
     const { h, apply, view, order } = await setup();
     await apply();
-    await approveB2b(h.deps, order.user_id, OWNER_AUTH);
+    await approveB2b(h.deps, order.user_id, OWNER_AUTH, (await h.repo.getBusinessProfile(order.user_id))!.updated_at);
     expect((await view()).customer.b2b).not.toBeNull();
-    await revokeB2b(h.deps, order.user_id, OWNER_AUTH, 'test reason');
+    await revokeB2b(h.deps, order.user_id, OWNER_AUTH, 'test reason', (await h.repo.getBusinessProfile(order.user_id))!.updated_at);
     const v = await view();
     expect(v.customer.b2b).toBeNull();
     expect(v.b2bAnchorPriceSatang).toBeNull();

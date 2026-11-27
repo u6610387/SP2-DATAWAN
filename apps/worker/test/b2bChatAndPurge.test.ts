@@ -61,7 +61,7 @@ describe('B2B document purge in the daily cleanup', () => {
     await upload(h, 1);
     await applyB2b(h.deps, (await h.repo.getUser(UID)) as UserRow, input([docPath(1)]));
     h.clock.advance(1);
-    await approveB2b(h.deps, UID, OWNER_AUTH);
+    await approveB2b(h.deps, UID, OWNER_AUTH, (await h.repo.getBusinessProfile(UID))!.updated_at);
     h.clock.advance(1);
     await upload(h, 2); // uploaded after the decision (a re-review)
     await h.repo.insertBusinessDocuments([{ user_id: UID, path: docPath(2), content_type: 'image/jpeg' }]);
@@ -82,7 +82,7 @@ describe('B2B document purge in the daily cleanup', () => {
     await upload(h, 1);
     await applyB2b(h.deps, (await h.repo.getUser(UID)) as UserRow, input([docPath(1)]));
     h.clock.advance(1);
-    await approveB2b(h.deps, UID, OWNER_AUTH);
+    await approveB2b(h.deps, UID, OWNER_AUTH, (await h.repo.getBusinessProfile(UID))!.updated_at);
     h.clock.advance((B2B_DOC_RETENTION_DAYS - 1) * 24 * 60);
     expect(await cleanup(h)).toBe(0);
     expect((h.deps.storage as MemoryStorage).objects.size).toBe(1);

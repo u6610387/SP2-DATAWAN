@@ -168,5 +168,7 @@ export interface OwnerB2bDetailView extends OwnerB2bSummaryView {
   rejectionReason: string | null;
   decidedAt: string | null;
   verifiedAt: string | null;
+  /** The profile's `updated_at`; sent back as `expectedUpdatedAt` with every owner decision. */
+  updatedAt: string;
   documents: { id: string; url: string }[];
 }

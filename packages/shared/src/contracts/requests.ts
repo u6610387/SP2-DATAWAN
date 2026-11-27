@@ -173,8 +173,18 @@ export const B2bDocUploadUrlRequest = z.object({
 });
 export type B2bDocUploadUrlRequest = z.infer<typeof B2bDocUploadUrlRequest>;
 
-/** Owner reject / revoke reason. */
+/**
+ * Owner approve / acknowledge. `expectedUpdatedAt` is the profile `updatedAt` the owner's detail
+ * view showed: a customer edit since then makes the decision 409 INVALID_FROM_STATE (CLAUDE.md §3.1).
+ */
+export const OwnerB2bDecisionRequest = z.object({
+  expectedUpdatedAt: z.string().min(1),
+});
+export type OwnerB2bDecisionRequest = z.infer<typeof OwnerB2bDecisionRequest>;
+
+/** Owner reject / revoke reason (plus the same `expectedUpdatedAt` guard). */
 export const OwnerB2bReasonRequest = z.object({
   reason: z.string().trim().min(1).max(200),
+  expectedUpdatedAt: z.string().min(1),
 });
 export type OwnerB2bReasonRequest = z.infer<typeof OwnerB2bReasonRequest>;
