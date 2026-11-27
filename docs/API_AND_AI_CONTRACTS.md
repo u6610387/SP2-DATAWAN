@@ -209,7 +209,7 @@ Owner-only decisions (CLAUDE.md §3.1): approve / reject / acknowledge / revoke 
 > | Message | Reply |
 > |---|---|
 > | `ดูรายการสินค้า` | Active products grouped by active category (uncategorised under "อื่นๆ"), with unit, plus an example order line. No prices, since they change daily. |
-> | `เช็คสถานะจัดส่ง` / `เช็กสถานะจัดส่ง` / `ขอลิงก์ lalamove` | The newest open order, else the last delivered one: code, status, total (or the product price before shipping, or "not priced yet"), and the Lalamove link, or a note that delivery isn't booked yet. |
+> | `เช็คสถานะจัดส่ง` / `เช็กสถานะจัดส่ง` / `ขอลิงก์ lalamove` | If an order is PAID or DELIVERING, the same link + status card as `TRACKING_RE` (an order with a tracking link first, even when a newer draft is active). Otherwise a summary of the newest open order, else the last delivered one: code, status, total (or the product price before shipping, or "not priced yet"), and a note that delivery isn't booked yet. |
 > | `ขอลิงก์ออเดอร์` | The active order's LIFF room `https://liff.line.me/<LIFF_ID>/orders/<orderId>`, or a no-open-order note. |
 > | `วิธีสั่งซื้อ` | A step-by-step ordering guide. |
 > | `ช่องทางชำระเงิน` | How to pay: PromptPay or transfer in the order room after the quote, then the slip, which the shop checks before confirming. The account details are not shown in chat. |

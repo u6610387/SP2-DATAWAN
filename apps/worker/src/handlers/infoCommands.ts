@@ -20,6 +20,12 @@ const COMMANDS: [InfoCommand, RegExp][] = [
   ['payment', new RegExp(`^ช่องทาง\\s*(?:การ)?ชำระ\\s*เงิน${PARTICLE}$`)],
 ];
 
+/** Orders a delivery question is really about: paid or on the way, one with a tracking link first. */
+export function shippingOrder(open: OrderRow[]): OrderRow | null {
+  const shipping = open.filter((o) => o.status === 'DELIVERING' || o.status === 'PAID');
+  return shipping.find((o) => o.tracking_url) ?? shipping[0] ?? null;
+}
+
 /** The command a whole message asks for, or null for anything else (normal flow). */
 export function matchInfoCommand(text: string): InfoCommand | null {
   const t = text.trim().replace(/\s+/g, ' ');
@@ -54,8 +60,11 @@ async function catalogText(deps: Deps): Promise<string> {
   return lines.join('\n');
 }
 
-/** Newest open order, else the last delivered one. Cancelled orders are never open. */
-async function latestOrder(deps: Deps, open: OrderRow[], userId: string): Promise<OrderRow | null> {
+/**
+ * Delivery question with nothing paid or on the way (those get the tracking reply in customer.ts):
+ * the newest open order, else the last delivered one. Cancelled orders are never open.
+ */
+async function deliveryOrder(deps: Deps, open: OrderRow[], userId: string): Promise<OrderRow | null> {
   return open[0] ?? (await deps.repo.lastDeliveredOrder(userId));
 }
 
@@ -83,7 +92,7 @@ export async function infoReplyText(
     case 'catalog':
       return catalogText(deps);
     case 'delivery': {
-      const order = await latestOrder(deps, orders.open, user.id);
+      const order = await deliveryOrder(deps, orders.open, user.id);
       return order ? deliveryText(order) : th.info.noOrder;
     }
     case 'orderLink': {

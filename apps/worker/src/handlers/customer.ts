@@ -25,7 +25,7 @@ import { suggestPrice } from '../services/pricing';
 import type { NewOrderItem } from '../services/repo';
 import { withNames } from '../services/itemNames';
 import { bangkokHHMM } from '../util/time';
-import { infoReplyText, matchInfoCommand } from './infoCommands';
+import { infoReplyText, matchInfoCommand, shippingOrder } from './infoCommands';
 
 /** Statuses that accept a slip (same as SLIP_UPLOADED's edges in orderMachine). */
 export const PAYABLE = ['AWAITING_PAYMENT', 'PAYMENT_EXPIRED'] as const;
@@ -344,10 +344,15 @@ export async function handleCustomerEvent(deps: Deps, ev: webhook.Event, lineUse
   // Exact-match info keywords first: answered from the DB by code (no AI, no push, no order change).
   // Before TRACKING_RE, which would otherwise catch "ขอลิงก์ออเดอร์" ("ลิงก์").
   const info = matchInfoCommand(text);
-  if (info) return reply(deps, replyToken, [flex.textMsg(await infoReplyText(deps, user, info, { open, active }))]);
+  if (info) {
+    // A delivery question about an order that's paid or on the way gets the same link + status card
+    // as TRACKING_RE (even when a newer draft is active); otherwise a text summary.
+    const target = info === 'delivery' ? shippingOrder(open) : null;
+    if (target) return reply(deps, replyToken, await trackingReply(deps, target));
+    return reply(deps, replyToken, [flex.textMsg(await infoReplyText(deps, user, info, { open, active }))]);
+  }
   if (TRACKING_RE.test(text)) {
-    const shipping = open.filter((o) => o.status === 'DELIVERING' || o.status === 'PAID');
-    const target = shipping.find((o) => o.tracking_url) ?? shipping[0];
+    const target = shippingOrder(open);
     if (target) return reply(deps, replyToken, await trackingReply(deps, target));
   }
   if (B2B_KEYWORD_RE.test(text)) {

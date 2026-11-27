@@ -1,7 +1,7 @@
 /** Zero-token info keywords: exact-match replies that never reach the AI parser or push. */
 import { describe, expect, it } from 'vitest';
 import { matchInfoCommand } from '../src/handlers/infoCommands';
-import { CUSTOMER_LINE, makeHarness } from './harness';
+import { findPostback, makeHarness } from './harness';
 
 const LIFF = 'https://liff.line.me/2000000000-abcdEFGH';
 
@@ -69,7 +69,7 @@ describe('info keywords through the webhook', () => {
     Object.assign(o, { status: 'DELIVERING', product_price_satang: 120000, shipping_fee_satang: 8000, total_satang: 128000, tracking_url: 'https://share.lalamove.com/?TH1&sign=x' });
     parseCalls.n = 0;
     await h.customerText('เช็คสถานะจัดส่ง');
-    const t = lastText();
+    const t = JSON.stringify(h.line.lastReply());
     expect(t).toContain(o.code);
     expect(t).toContain('กำลังจัดส่ง');
     expect(t).toContain('1,280');
@@ -101,6 +101,23 @@ describe('info keywords through the webhook', () => {
     await h.customerText('เช็คสถานะจัดส่ง');
     expect(lastText()).toContain(o.code);
     expect(lastText()).toContain('จัดส่งสำเร็จแล้ว');
+  });
+
+  it('เช็คสถานะจัดส่ง answers for the order on its way even when a newer draft is active', async () => {
+    const { h, lastText } = setup();
+    await h.customerText('กุ้งแม่น้ำ 2 โล');
+    const shipping = h.repo.orders[0]!;
+    Object.assign(shipping, { status: 'DELIVERING', total_satang: 90000, tracking_url: 'https://share.lalamove.com/?TH9' });
+    h.repo.users[0]!.active_order_id = null;
+    await h.customerText('หอยแครง 1 โล');
+    if (h.repo.orders.length < 2) await h.customerPostback(findPostback(h.line.lastReply(), 'new'));
+    const draft = h.repo.orders.find((o) => o.id !== shipping.id)!;
+    expect(draft.status).toBe('AWAITING_CONFIRMATION');
+    await h.customerText('ขอลิ้งค์ lalamove');
+    const t = JSON.stringify(h.line.lastReply());
+    expect(t).toContain(shipping.code);
+    expect(t).toContain('https://share.lalamove.com/?TH9');
+    expect(t).not.toContain(draft.code);
   });
 
   it('ขอลิงก์ออเดอร์: LIFF order-room URL of the active order; none → no-order note', async () => {
