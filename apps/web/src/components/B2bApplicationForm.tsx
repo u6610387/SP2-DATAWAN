@@ -6,6 +6,7 @@
  */
 import { useState } from 'react';
 import { isValidThaiTaxId, type B2bApplyRequest, type BusinessType, type CustomerAccountView } from '@datawan/shared';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -157,6 +158,8 @@ export function B2bApplicationForm({
           {t.account.typeB2b}
         </Button>
       </div>
+
+      {!showForm && <GeneralAccountCard account={account} t={t} onSwitchToBusiness={() => setShowForm(true)} />}
 
       {showForm && (
         <Card>
@@ -312,6 +315,35 @@ function StatusBanner({
           {t.account.reapply}
         </Button>
       )}
+    </Card>
+  );
+}
+
+/**
+ * The "ลูกค้าทั่วไป" tab: a status card instead of a blank area, so the page never looks
+ * unloaded. A verified shop sees its shop status here, not "general customer". Pure (props only).
+ */
+export function GeneralAccountCard({ account, t, onSwitchToBusiness }: { account: CustomerAccountView; t: Dictionary; onSwitchToBusiness: () => void }) {
+  const verified = account.type === 'B2B' && account.b2b?.status === 'VERIFIED';
+  return (
+    <Card className="space-y-3">
+      <Badge className={verified ? 'bg-[var(--green-bg)] text-[var(--green)]' : 'bg-black/5 text-[var(--fg)]'}>
+        {verified ? t.account.verifiedShopTitle : t.account.generalTitle}
+      </Badge>
+      {verified ? (
+        <p className="text-sm">{t.account.verifiedShopNote}</p>
+      ) : (
+        <ul className="list-disc space-y-1 pl-5 text-sm">
+          <li>{t.account.generalOrderNote}</li>
+          <li>{t.account.generalPinNote}</li>
+        </ul>
+      )}
+      <div className="space-y-2 border-t border-[var(--border)] pt-3">
+        {!verified && <p className="text-xs text-[var(--muted)]">{t.account.switchToBusinessHint}</p>}
+        <Button type="button" variant="secondary" size="md" className="w-full" onClick={onSwitchToBusiness}>
+          {verified ? t.account.viewShopDetails : t.account.switchToBusiness}
+        </Button>
+      </div>
     </Card>
   );
 }

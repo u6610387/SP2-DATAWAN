@@ -228,6 +228,15 @@ export interface Dictionary {
     rereview: string;
     typeB2c: string;
     typeB2b: string;
+    /** "ลูกค้าทั่วไป" tab: status card instead of a blank area. */
+    generalTitle: string;
+    generalOrderNote: string;
+    generalPinNote: string;
+    switchToBusinessHint: string;
+    switchToBusiness: string;
+    verifiedShopTitle: string;
+    verifiedShopNote: string;
+    viewShopDetails: string;
     businessName: string;
     businessType: string;
     types: Record<'restaurant' | 'reseller' | 'hotel' | 'other', string>;
