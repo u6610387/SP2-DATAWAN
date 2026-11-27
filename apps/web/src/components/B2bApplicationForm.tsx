@@ -10,9 +10,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { compressImage } from '@/lib/compressImage';
+import { ApiRequestError } from '@/lib/api';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 
-const MAX_PHOTOS = 3;
+/** Un-purged documents per user (the worker enforces the same cap). */
+const MAX_DOCUMENTS = 3;
 const BUSINESS_TYPES: BusinessType[] = ['restaurant', 'reseller', 'hotel', 'other'];
 
 export interface B2bFormValues {
@@ -27,6 +29,39 @@ export interface B2bFormValues {
 
 /** What the form hands to the page; the page uploads `photos` and fills `documentPaths`. */
 export type B2bFormFields = Omit<B2bApplyRequest, 'documentPaths'>;
+
+/**
+ * How many new photos this submit may add: 3 minus the documents already on file. A rejected
+ * application's documents are purged when the customer re-applies, so they do not count.
+ */
+export function maxNewPhotos(account: CustomerAccountView): number {
+  const b = account.b2b;
+  if (!b || b.status === 'REJECTED') return MAX_DOCUMENTS;
+  return Math.max(0, MAX_DOCUMENTS - b.documents.length);
+}
+
+/** A photo PUT to the signed upload URL failed. */
+export class UploadError extends Error {}
+
+/** Customer-facing copy for a failed submit, by API error code; never the server's English message. */
+export function accountErrorMessage(e: unknown, t: Dictionary): string {
+  if (!(e instanceof ApiRequestError)) return e instanceof UploadError ? t.account.errors.uploadFailed : t.account.errors.generic;
+  switch (e.code) {
+    case 'VALIDATION_FAILED':
+      return t.account.errors.validation;
+    case 'INVALID_FROM_STATE':
+      return t.account.errors.invalidState;
+    case 'TOO_MANY_DOCUMENTS':
+      return t.account.errors.tooManyDocuments;
+    default:
+      return t.account.errors.generic;
+  }
+}
+
+/** Runs the page's submit; on success clears the sent photos and the consent tick (they are on file now). */
+export async function submitAndReset(submit: () => Promise<boolean>, reset: () => void): Promise<void> {
+  if (await submit()) reset();
+}
 
 function initialFrom(account: CustomerAccountView): B2bFormValues {
   const b = account.b2b;
@@ -52,7 +87,8 @@ export function B2bApplicationForm({
   account: CustomerAccountView;
   t: Dictionary;
   busy: boolean;
-  onSubmit: (fields: B2bFormFields, photos: Blob[]) => Promise<void>;
+  /** Resolves true when the application was saved; the form then clears photos and consent. */
+  onSubmit: (fields: B2bFormFields, photos: Blob[]) => Promise<boolean>;
   initialValues?: Partial<B2bFormValues>;
 }) {
   const b = account.b2b;
@@ -64,12 +100,25 @@ export function B2bApplicationForm({
   // A rejected application stays collapsed behind "สมัครใหม่"; the toggle can also hide the form.
   const [showForm, setShowForm] = useState(b?.status !== 'REJECTED');
   const set = <K extends keyof B2bFormValues>(k: K, v: B2bFormValues[K]) => setValues((p) => ({ ...p, [k]: v }));
+  const photoSlots = maxNewPhotos(account);
+  const remaining = Math.max(0, photoSlots - photos.length);
 
   const taxIdComplete = values.taxId.length === 13;
   const taxIdOk = values.taxId === '' || taxIdComplete;
   const taxIdWarn = taxIdComplete && !isValidThaiTaxId(values.taxId);
   const windowOk = (values.windowFrom === '') === (values.windowTo === '');
   const canSubmit = values.businessName.trim() !== '' && values.addressText.trim().length >= 5 && taxIdOk && windowOk && values.consent && !busy;
+
+  const formFields = (): B2bFormFields => ({
+    businessName: values.businessName.trim(),
+    businessType: values.businessType,
+    addressText: values.addressText.trim(),
+    lat: coords?.lat ?? null,
+    lng: coords?.lng ?? null,
+    deliveryWindow: values.windowFrom && values.windowTo ? `${values.windowFrom}-${values.windowTo}` : null,
+    taxId: values.taxId === '' ? null : values.taxId,
+    pdpaConsent: true,
+  });
 
   function useCurrentLocation() {
     setLocationError(false);
@@ -90,7 +139,7 @@ export function B2bApplicationForm({
     setPhotoError(false);
     try {
       const blob = await compressImage(file);
-      setPhotos((p) => (p.length < MAX_PHOTOS ? [...p, blob] : p));
+      setPhotos((p) => (p.length < photoSlots ? [...p, blob] : p));
     } catch {
       setPhotoError(true);
     }
@@ -183,22 +232,24 @@ export function B2bApplicationForm({
                 </button>
               </span>
             ))}
-            {photos.length < MAX_PHOTOS && (
-              <label className="inline-flex h-9 cursor-pointer items-center rounded-xl border border-[var(--border)] px-3 text-sm">
-                {t.account.addPhoto}
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  disabled={busy}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = '';
-                    if (file) void addPhoto(file);
-                  }}
-                />
-              </label>
-            )}
+            <label
+              aria-disabled={remaining === 0}
+              className={`inline-flex h-9 items-center rounded-xl border border-[var(--border)] px-3 text-sm ${remaining === 0 ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}`}
+            >
+              {t.account.addPhoto}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={busy || remaining === 0}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) void addPhoto(file);
+                }}
+              />
+            </label>
+            <span className="text-xs text-[var(--muted)]">{t.account.photosRemaining(remaining)}</span>
           </div>
           {photoError && <p className="mt-1 text-xs text-[var(--red)]">{t.liff.uploadError}</p>}
 
@@ -222,18 +273,12 @@ export function B2bApplicationForm({
             size="lg"
             disabled={!canSubmit}
             onClick={() =>
-              void onSubmit(
-                {
-                  businessName: values.businessName.trim(),
-                  businessType: values.businessType,
-                  addressText: values.addressText.trim(),
-                  lat: coords?.lat ?? null,
-                  lng: coords?.lng ?? null,
-                  deliveryWindow: values.windowFrom && values.windowTo ? `${values.windowFrom}-${values.windowTo}` : null,
-                  taxId: values.taxId === '' ? null : values.taxId,
-                  pdpaConsent: true,
+              void submitAndReset(
+                () => onSubmit(formFields(), photos),
+                () => {
+                  setPhotos([]);
+                  set('consent', false);
                 },
-                photos,
               )
             }
           >

@@ -242,13 +242,21 @@ export interface Dictionary {
     taxIdInvalid: string;
     photos: string;
     photosHint: string;
+    /** How many more photos this submit can add (3 minus the ones already on file). */
+    photosRemaining: (n: number) => string;
     addPhoto: string;
     removePhoto: string;
     consent: string;
     submit: string;
     submitting: string;
-    tooManyDocuments: string;
-    genericError: string;
+    /** Submit errors by API code; the server's English `message` is never shown to the customer. */
+    errors: {
+      validation: string;
+      invalidState: string;
+      tooManyDocuments: string;
+      uploadFailed: string;
+      generic: string;
+    };
   };
   customers: {
     title: string;

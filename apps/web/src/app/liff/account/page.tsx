@@ -2,8 +2,8 @@
 import { useState } from 'react';
 import useSWR from 'swr';
 import type { B2bApplyRequest } from '@datawan/shared';
-import { B2bApplicationForm, type B2bFormFields } from '@/components/B2bApplicationForm';
-import { ApiRequestError, applyB2b, getAccount, getB2bDocUploadUrl } from '@/lib/api';
+import { accountErrorMessage, B2bApplicationForm, UploadError, type B2bFormFields } from '@/components/B2bApplicationForm';
+import { applyB2b, getAccount, getB2bDocUploadUrl } from '@/lib/api';
 import { useLanguage } from '@/lib/i18n/context';
 import { useLiffAuth } from '@/lib/liffAuth';
 
@@ -22,7 +22,8 @@ function Account({ auth }: { auth: { idToken: string | null; devUser: string | n
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function submit(fields: B2bFormFields, photos: Blob[]) {
+  /** True when the application was saved (the form then clears its photos and consent). */
+  async function submit(fields: B2bFormFields, photos: Blob[]): Promise<boolean> {
     setBusy(true);
     setError(null);
     try {
@@ -31,14 +32,16 @@ function Account({ auth }: { auth: { idToken: string | null; devUser: string | n
         const { uploadUrl, path } = await getB2bDocUploadUrl(auth, 'image/jpeg');
         if (!uploadUrl.startsWith('about:blank')) {
           const res = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, body: blob });
-          if (!res.ok) throw new Error('upload failed');
+          if (!res.ok) throw new UploadError('upload failed');
         }
         documentPaths.push(path);
       }
       const body: B2bApplyRequest = { ...fields, documentPaths };
       await mutate(await applyB2b(auth, body), { revalidate: false });
+      return true;
     } catch (e) {
-      setError(e instanceof ApiRequestError ? (e.code === 'TOO_MANY_DOCUMENTS' ? t.account.tooManyDocuments : e.message) : t.account.genericError);
+      setError(accountErrorMessage(e, t));
+      return false;
     } finally {
       setBusy(false);
     }
