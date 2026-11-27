@@ -25,6 +25,7 @@ import { suggestPrice } from '../services/pricing';
 import type { NewOrderItem } from '../services/repo';
 import { withNames } from '../services/itemNames';
 import { bangkokHHMM } from '../util/time';
+import { infoReplyText, matchInfoCommand } from './infoCommands';
 
 /** Statuses that accept a slip (same as SLIP_UPLOADED's edges in orderMachine). */
 export const PAYABLE = ['AWAITING_PAYMENT', 'PAYMENT_EXPIRED'] as const;
@@ -340,6 +341,10 @@ export async function handleCustomerEvent(deps: Deps, ev: webhook.Event, lineUse
   const text = msg.text.trim();
   // Delivery / tracking question: answer for the order that's actually paid or on the way (not
   // necessarily the active one — the customer may already have a newer order open).
+  // Exact-match info keywords first: answered from the DB by code (no AI, no push, no order change).
+  // Before TRACKING_RE, which would otherwise catch "ขอลิงก์ออเดอร์" ("ลิงก์").
+  const info = matchInfoCommand(text);
+  if (info) return reply(deps, replyToken, [flex.textMsg(await infoReplyText(deps, user, info, { open, active }))]);
   if (TRACKING_RE.test(text)) {
     const shipping = open.filter((o) => o.status === 'DELIVERING' || o.status === 'PAID');
     const target = shipping.find((o) => o.tracking_url) ?? shipping[0];
