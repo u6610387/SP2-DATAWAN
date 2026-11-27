@@ -3,6 +3,7 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import { formatTHB, type OrderStatus, type OwnerOrderView, type QuotaStatus } from '@datawan/shared';
 import { Badge, MarginBadge } from '@/components/ui/badge';
+import { B2bBadge } from '@/components/B2bBadge';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { ownerFetch } from '@/lib/api';
@@ -115,6 +116,7 @@ export default function DashboardHome() {
                   <div className="min-w-0">
                     <div className="font-semibold">{o.code}</div>
                     <div className="truncate text-xs text-[var(--muted)]">{o.customer.name ?? o.customer.businessName ?? '-'}</div>
+                    <B2bBadge b2b={o.customer.b2b} />
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                     {o.totalSatang !== null ? (

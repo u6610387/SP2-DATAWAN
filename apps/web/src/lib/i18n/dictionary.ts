@@ -18,6 +18,7 @@ export interface Dictionary {
     orderChanged: string;
   };
   nav: {
+    customers: string;
     home: string;
     inventory: string;
   };
@@ -248,6 +249,40 @@ export interface Dictionary {
     submitting: string;
     tooManyDocuments: string;
     genericError: string;
+  };
+  customers: {
+    title: string;
+    tabPending: (n: number) => string;
+    tabB2b: string;
+    tabAll: string;
+    empty: string;
+    needsRereview: string;
+    statusPending: string;
+    statusVerified: string;
+    statusRejected: string;
+    back: string;
+    phone: string;
+    address: string;
+    openMap: string;
+    deliveryWindow: string;
+    taxId: string;
+    taxIdValid: string;
+    taxIdInvalid: string;
+    photos: string;
+    noPhotos: string;
+    rereviewFields: (fields: string) => string;
+    rejectionReason: (reason: string) => string;
+    approve: string;
+    approveConfirm: string;
+    reject: string;
+    acknowledge: string;
+    revoke: string;
+    reasonLabel: string;
+    reasonHint: string;
+    confirm: string;
+    cancel: string;
+    changedReload: string;
+    loadError: string;
   };
   pushButton: {
     enable: string;

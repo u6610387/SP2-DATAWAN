@@ -3,7 +3,7 @@
  * When NEXT_PUBLIC_USE_MOCKS=true, requests are served from src/mocks instead of the network —
  * lets the dashboard/LIFF UI be exercised in Chrome with no Worker/Supabase/LINE running.
  */
-import type { ApiError, B2bApplyRequest, CustomerAccountView } from '@datawan/shared';
+import type { ApiError, B2bApplyRequest, CustomerAccountView, OwnerB2bDetailView, OwnerB2bSummaryView } from '@datawan/shared';
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8787';
 const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === 'true';
@@ -73,4 +73,26 @@ export function getB2bDocUploadUrl(auth: LiffAuth, contentType: 'image/jpeg' | '
 
 export function applyB2b(auth: LiffAuth, body: B2bApplyRequest): Promise<CustomerAccountView> {
   return liffFetch<CustomerAccountView>('/api/liff/account/b2b', auth, { method: 'POST', body });
+}
+
+// ---- Owner B2B review (docs/API_AND_AI_CONTRACTS.md §2.2) ----
+export type B2bFilter = 'pending' | 'b2b' | 'all';
+
+export function listB2bCustomers(token: string, filter: B2bFilter): Promise<OwnerB2bSummaryView[]> {
+  return ownerFetch<OwnerB2bSummaryView[]>(`/api/owner/customers?filter=${filter}`, token);
+}
+export function getB2bCustomer(token: string, userId: string): Promise<OwnerB2bDetailView> {
+  return ownerFetch<OwnerB2bDetailView>(`/api/owner/customers/${userId}`, token);
+}
+export function approveB2bCustomer(token: string, userId: string): Promise<OwnerB2bDetailView> {
+  return ownerFetch<OwnerB2bDetailView>(`/api/owner/customers/${userId}/approve`, token, { method: 'POST' });
+}
+export function rejectB2bCustomer(token: string, userId: string, reason: string): Promise<OwnerB2bDetailView> {
+  return ownerFetch<OwnerB2bDetailView>(`/api/owner/customers/${userId}/reject`, token, { method: 'POST', body: { reason } });
+}
+export function acknowledgeB2bCustomer(token: string, userId: string): Promise<OwnerB2bDetailView> {
+  return ownerFetch<OwnerB2bDetailView>(`/api/owner/customers/${userId}/acknowledge`, token, { method: 'POST' });
+}
+export function revokeB2bCustomer(token: string, userId: string, reason: string): Promise<OwnerB2bDetailView> {
+  return ownerFetch<OwnerB2bDetailView>(`/api/owner/customers/${userId}/revoke`, token, { method: 'POST', body: { reason } });
 }
