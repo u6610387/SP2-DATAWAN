@@ -7,6 +7,9 @@ import {
   computeMargin,
   type AddressRow,
   type CustomerOrderView,
+  type CustomerAccountView,
+  type BusinessProfileRow,
+  type BusinessDocumentRow,
   type MarginColor,
   type NegotiationRow,
   type OrderItemRow,
@@ -148,5 +151,25 @@ export function toOwnerOrderView(args: OwnerViewArgs): OwnerOrderView {
     needsOwnerReview: args.needsOwnerReview,
     pushCount: args.pushCount,
     trackingPush: args.trackingPush,
+  };
+}
+
+/** Account view for the LIFF: documents are ids only (never paths or URLs); the reason shows only when REJECTED. */
+export function toCustomerAccountView(user: UserRow, profile: BusinessProfileRow | null, documents: BusinessDocumentRow[]): CustomerAccountView {
+  return {
+    type: user.user_type,
+    b2b: profile && {
+      status: profile.status,
+      businessName: profile.business_name,
+      businessType: profile.business_type,
+      addressText: profile.address_text,
+      lat: profile.lat,
+      lng: profile.lng,
+      deliveryWindow: profile.default_delivery_window,
+      taxId: profile.tax_id,
+      rejectionReason: profile.status === 'REJECTED' ? profile.rejection_reason : null,
+      needsRereview: profile.needs_rereview,
+      documents: documents.map((d) => ({ id: d.id })),
+    },
   };
 }

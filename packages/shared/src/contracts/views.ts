@@ -112,6 +112,8 @@ export type ApiErrorCode =
   | 'DELIVERY_INCOMPLETE'
   | 'NOT_A_SLIP'
   | 'DUPLICATE'
+  | 'INVALID_FROM_STATE'
+  | 'TOO_MANY_DOCUMENTS'
   | 'INTERNAL';
 
 export interface ApiError {

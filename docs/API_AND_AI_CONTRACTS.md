@@ -21,7 +21,7 @@ Purpose: let Thanadon (Worker), Thanakrit (AI) and Kitirat (Web/LIFF) build in p
 | Auth: owner | `Authorization: Bearer <Supabase access token>`; Worker verifies and requires `app_metadata.role = 'owner'` |
 
 ### 1.1 Error codes
-`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `VALIDATION_FAILED`, `ORDER_STATE_INVALID`, `VERSION_CONFLICT`, `QUOTA_SAVER_ACTIVE` (informational), `AI_UNAVAILABLE`, `AI_OUTPUT_INVALID`, `SLIP_REFERENCE_REUSED`, `INTERNAL`.
+`UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `VALIDATION_FAILED`, `ORDER_STATE_INVALID`, `VERSION_CONFLICT`, `QUOTA_SAVER_ACTIVE` (informational), `AI_UNAVAILABLE`, `AI_OUTPUT_INVALID`, `SLIP_REFERENCE_REUSED`, `INVALID_FROM_STATE` and `TOO_MANY_DOCUMENTS` (B2B account, 409), `INTERNAL`.
 
 ---
 
