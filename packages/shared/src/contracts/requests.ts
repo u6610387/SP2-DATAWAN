@@ -150,3 +150,32 @@ export const ProductUpdateRequest = z
   .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'nothing to update' });
 export type ProductUpdateRequest = z.infer<typeof ProductUpdateRequest>;
 
+
+// ---- B2B account (docs/API_AND_AI_CONTRACTS.md §2.4) ----
+const DELIVERY_WINDOW_RE = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
+
+export const B2bApplyRequest = z
+  .object({
+    businessName: z.string().trim().min(1).max(100),
+    businessType: z.enum(['restaurant', 'reseller', 'hotel', 'other']),
+    addressText: z.string().trim().min(5).max(300),
+    lat: z.number().min(5).max(21).nullable(),
+    lng: z.number().min(97).max(106).nullable(),
+    deliveryWindow: z.string().regex(DELIVERY_WINDOW_RE).nullable(),
+    taxId: z.string().regex(/^\d{13}$/).nullable(),
+    documentPaths: z.array(z.string().max(300)).max(3),
+    pdpaConsent: z.literal(true),
+  })
+  .refine((v) => (v.lat === null) === (v.lng === null), { message: 'lat and lng must both be set or both null' });
+export type B2bApplyRequest = z.infer<typeof B2bApplyRequest>;
+
+export const B2bDocUploadUrlRequest = z.object({
+  contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+});
+export type B2bDocUploadUrlRequest = z.infer<typeof B2bDocUploadUrlRequest>;
+
+/** Owner reject / revoke reason. */
+export const OwnerB2bReasonRequest = z.object({
+  reason: z.string().trim().min(1).max(200),
+});
+export type OwnerB2bReasonRequest = z.infer<typeof OwnerB2bReasonRequest>;

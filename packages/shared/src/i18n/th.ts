@@ -2,6 +2,12 @@
 import type { OrderStatus } from '../db';
 
 export const th = {
+  b2bAccountLink: (url: string) => `สมัคร/ดูสถานะบัญชีร้านค้า B2B ได้ที่ลิงก์นี้ค่ะ 👉 ${url}`,
+  b2bStatusLabel: {
+    PENDING_VERIFICATION: 'รอร้านตรวจสอบ',
+    VERIFIED: 'ยืนยันแล้ว',
+    REJECTED: 'ไม่ผ่าน',
+  } as Record<string, string>,
   welcome: 'สวัสดีค่ะ ดาทะวันซีฟู้ดยินดีต้อนรับ 🦐 พิมพ์สั่งของได้เลย เช่น "กุ้งแม่น้ำ 2 โล ส่งพรุ่งนี้เช้า"',
   orderReceivedChecking: 'รับออเดอร์แล้วค่ะ ร้านกำลังตรวจสอบรายการให้นะคะ',
   confirmTitle: (code: string) => `สรุปออเดอร์ ${code}`,

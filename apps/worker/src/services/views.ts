@@ -132,6 +132,7 @@ export function toOwnerOrderView(args: OwnerViewArgs): OwnerOrderView {
       name: user.full_name ?? user.display_name,
       businessName: user.business_name,
       phone: user.phone,
+      b2b: null,
     },
     rawOrderText: order.raw_order_text,
     costSatang: args.costSatang,

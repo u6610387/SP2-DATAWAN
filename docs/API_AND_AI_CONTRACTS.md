@@ -157,6 +157,24 @@ export interface QuotaStatus {
 export interface BillFlag { lineIndex: number | null; kind: 'LINE_MATH' | 'TOTAL_MATH' | 'UNREADABLE' | 'NO_PRODUCT_MATCH'; detail: string }
 ```
 
+### 2.3a B2B account (owner-verified B2B customers)
+
+Owner-only decisions (CLAUDE.md §3.1): approve / reject / acknowledge / revoke each write a `user_events` row with `actor = 'owner'`. Business data is never sent to Gemini. Documents live in the private bucket `business-docs`; paths must match `business-docs/<userId>/<uuid>.(jpeg|png|webp)`.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/liff/account` | – | `CustomerAccountView` |
+| POST | `/api/liff/account/b2b/doc-upload-url` | `B2bDocUploadUrlRequest` | `{ path, uploadUrl }` |
+| POST | `/api/liff/account/b2b` | `B2bApplyRequest` | `CustomerAccountView` |
+| GET | `/api/owner/customers?filter=pending\|b2b\|all` | – | `OwnerB2bSummaryView[]` |
+| GET | `/api/owner/customers/:userId` | – | `OwnerB2bDetailView` (signed doc URLs, 300 s) |
+| POST | `/api/owner/customers/:userId/approve` | – | `OwnerB2bDetailView` |
+| POST | `/api/owner/customers/:userId/reject` | `OwnerB2bReasonRequest` | `OwnerB2bDetailView` |
+| POST | `/api/owner/customers/:userId/acknowledge` | – | `OwnerB2bDetailView` (clears `needsRereview`) |
+| POST | `/api/owner/customers/:userId/revoke` | `OwnerB2bReasonRequest` | `OwnerB2bDetailView` |
+
+`isValidThaiTaxId()` (`packages/shared/src/taxId.ts`) is a checksum flag (`taxIdValid`) only; it never approves. `OwnerOrderView.customer.b2b` is `{ businessName, deliveryWindow } | null`.
+
 ### 2.4 Scheduled jobs (Worker `scheduled()` handler; not HTTP)
 
 | Cron | Job |

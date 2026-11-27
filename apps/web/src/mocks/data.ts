@@ -19,7 +19,7 @@ function order(partial: Partial<OwnerOrderView> & Pick<OwnerOrderView, 'id' | 'c
     negotiation: [],
     delivery: { recipientName: null, recipientPhone: null, hasLocation: false, needsRecipient: false, addressText: null, lat: null, lng: null, requestedDeliveryAt: null },
     ownerDelayed: false,
-    customer: { id: 'u1', type: 'B2C', name: 'คุณสมหญิง', businessName: null, phone: '0812345678' },
+    customer: { id: 'u1', type: 'B2C', name: 'คุณสมหญิง', businessName: null, phone: '0812345678', b2b: null },
     rawOrderText: null,
     costSatang: null,
     suggestedPriceSatang: null,
