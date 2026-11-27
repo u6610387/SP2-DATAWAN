@@ -67,12 +67,13 @@ function requireOwner(deps: Deps) {
 }
 
 async function buildOwnerView(deps: Deps, order: OrderRow): Promise<OwnerOrderView> {
-  const [items, products, negotiations, user, payment] = await Promise.all([
+  const [items, products, negotiations, user, payment, b2bProfile] = await Promise.all([
     deps.repo.getItems(order.id),
     deps.repo.listActiveProducts(),
     deps.repo.listNegotiations(order.id),
     deps.repo.getUser(order.user_id),
     deps.repo.latestPayment(order.id),
+    deps.repo.getBusinessProfile(order.user_id),
   ]);
   if (!user) throw new Error(`order ${order.id} has no user`);
   const address = order.address_id ? await deps.repo.getAddress(order.address_id) : null;
@@ -91,6 +92,7 @@ async function buildOwnerView(deps: Deps, order: OrderRow): Promise<OwnerOrderVi
     negotiations,
     address,
     user,
+    b2bProfile,
     promptpayId: deps.cfg.PROMPTPAY_ID,
     costSatang: suggestion.costSatang,
     suggestedPriceSatang: suggestion.suggestedSatang,

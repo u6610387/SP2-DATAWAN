@@ -116,6 +116,7 @@ export function toPaymentCheckView(payment: PaymentRow | null, slipImageUrl: str
 
 export interface OwnerViewArgs extends CustomerViewArgs {
   user: UserRow;
+  b2bProfile: BusinessProfileRow | null;
   costSatang: number | null;
   suggestedPriceSatang: number | null;
   b2bAnchorPriceSatang: number | null;
@@ -138,7 +139,10 @@ export function toOwnerOrderView(args: OwnerViewArgs): OwnerOrderView {
       name: user.full_name ?? user.display_name,
       businessName: user.business_name,
       phone: user.phone,
-      b2b: null,
+      b2b:
+        args.b2bProfile?.status === 'VERIFIED'
+          ? { businessName: user.business_name ?? args.b2bProfile.business_name, deliveryWindow: user.default_delivery_window }
+          : null,
     },
     rawOrderText: order.raw_order_text,
     costSatang: args.costSatang,

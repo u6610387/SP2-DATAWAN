@@ -42,7 +42,11 @@ export function lalamoveCardText(order: OrderRow, address: AddressRow | null, us
     ...(!name || !phone ? ['⚠️ ยังไม่มีชื่อ/เบอร์ผู้รับ — ให้ลูกค้ากรอกในลิงก์ออเดอร์ หรือโทรถามก่อนเรียกไรเดอร์'] : []),
     `ที่อยู่: ${address?.address_text ?? '(ดูจากหมุด)'}`,
     ...(map ? [`แผนที่: ${map}`] : []),
-    ...(order.requested_delivery_at ? [`เวลาส่ง: ${bangkokHHMM(order.requested_delivery_at)} น.`] : []),
+    ...(order.requested_delivery_at
+      ? [`เวลาส่ง: ${bangkokHHMM(order.requested_delivery_at)} น.`]
+      : user?.user_type === 'B2B' && user.default_delivery_window
+        ? [`เวลาส่งประจำ: ${user.default_delivery_window} น.`]
+        : []),
   ].join('\n');
 }
 
