@@ -183,6 +183,8 @@ Owner-only decisions (CLAUDE.md §3.1): approve / reject / acknowledge / revoke 
 
 **The owner decides on the data they saw.** `OwnerB2bDetailView.updatedAt` is the profile's `updated_at`. Every decision body carries it back as `expectedUpdatedAt` (`OwnerB2bDecisionRequest { expectedUpdatedAt }`; `OwnerB2bReasonRequest { reason, expectedUpdatedAt }`, reason trimmed 1–200). The worker matches it exactly, as stored, inside the guarded update. If the customer changed the application after the owner's view, the answer is 409 `INVALID_FROM_STATE`, nothing is decided and no audit row is written. The dashboard then refetches the detail. A missing `expectedUpdatedAt` is 400 `VALIDATION_FAILED`.
 
+**Re-review on a verified shop.** A change to `business_name` or `tax_id`, or **at least one new document** (a path not already on file), sets `needs_rereview` and adds the field (`business_name`, `tax_id`, `documents`) to `rereview_fields`. It writes `B2B_REREVIEW { fields }` and sends one `B2B_REREVIEW` Web Push, only when the flag goes from false to true. Acknowledging moves `decided_at`, so documents added during the re-review are covered by the 30-day purge from then on.
+
 `isValidThaiTaxId()` (`packages/shared/src/taxId.ts`) is a checksum flag (`taxIdValid`) only; it never approves. `OwnerOrderView.customer.b2b` is `{ businessName, deliveryWindow } | null`.
 
 ### 2.4 Scheduled jobs (Worker `scheduled()` handler; not HTTP)

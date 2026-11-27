@@ -93,7 +93,9 @@ export async function applyB2b(deps: Deps, user: UserRow, input: B2bApplyInput):
     // only the delivery window (not sensitive) follows the profile immediately. A customer
     // edit never writes user_type: the conditional update is a no-op if the owner revoked
     // the shop in the meantime (CLAUDE.md §3.1).
-    const changed = changedSensitiveFields(existing, fields);
+    // New documents on a verified shop are sensitive too: the owner must look at them, and the
+    // acknowledge moves decided_at past them so the retention purge then covers them.
+    const changed = [...changedSensitiveFields(existing, fields), ...(newPaths.length ? ['documents'] : [])];
     if (changed.length) {
       const rereviewFields = [...new Set([...existing.rereview_fields, ...changed])];
       profile = await deps.repo.updateBusinessProfile(user.id, 'VERIFIED', { ...fields, needs_rereview: true, rereview_fields: rereviewFields });

@@ -149,6 +149,45 @@ describe('B2B service — applyB2b', () => {
     expect(s.notifier.alerts).toEqual([]);
   });
 
+  it('VERIFIED, a new document → re-review with fields [documents], one alert; acknowledge moves decided_at past it (I1)', async () => {
+    const s = await verified();
+    const approvedAt = (await s.repo.getBusinessProfile(UID))!.decided_at;
+    s.clock.advance(60);
+    const r = await applyB2b(s.deps, await s.fresh(), input({ documentPaths: [doc(1)] }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.profile.needs_rereview).toBe(true);
+    expect(r.profile.rereview_fields).toEqual(['documents']);
+    expect((await s.repo.listUserEvents(UID)).at(-1)).toMatchObject({ event: 'B2B_REREVIEW', actor: 'customer', payload: { fields: ['documents'] } });
+    expect(s.alerts('B2B_REREVIEW')).toEqual([{ kind: 'B2B_REREVIEW', userId: UID }]);
+
+    // Re-sending the same path is not a new document; a second new one while flagged: no second alert.
+    const same = await applyB2b(s.deps, await s.fresh(), input({ documentPaths: [doc(1)] }));
+    expect(same.ok && same.profile.rereview_fields).toEqual(['documents']);
+    await applyB2b(s.deps, await s.fresh(), input({ businessName: NEW_NAME, documentPaths: [doc(2)] }));
+    expect((await s.repo.getBusinessProfile(UID))!.rereview_fields).toEqual(['documents', 'business_name']);
+    expect(s.alerts('B2B_REREVIEW').length).toBe(1);
+
+    s.clock.advance(60);
+    const a = await acknowledgeB2b(s.deps, UID, OWNER_AUTH, await stamp(s));
+    expect(a.ok).toBe(true);
+    if (!a.ok) return;
+    expect(a.profile.decided_at).toBe(s.clock.now().toISOString());
+    expect(a.profile.decided_at).not.toBe(approvedAt);
+    const docs = await s.repo.listBusinessDocuments(UID);
+    expect(docs.every((d) => d.uploaded_at <= a.profile.decided_at!)).toBe(true);
+  });
+
+  it('VERIFIED, no new document and no sensitive change → no re-review (I1 edge)', async () => {
+    const s = await setup();
+    await applyB2b(s.deps, s.user, input({ documentPaths: [doc(1)] }));
+    await approveB2b(s.deps, UID, OWNER_AUTH, await stamp(s));
+    s.notifier.alerts.length = 0;
+    const r = await applyB2b(s.deps, await s.fresh(), input({ documentPaths: [doc(1)] }));
+    expect(r.ok && r.profile.needs_rereview).toBe(false);
+    expect(s.notifier.alerts).toEqual([]);
+  });
+
   it('TOO_MANY_DOCUMENTS when existing + new > 3, and nothing is written', async () => {
     const s = await setup();
     await applyB2b(s.deps, s.user, input({ documentPaths: [doc(1), doc(2)] }));

@@ -949,8 +949,9 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     for (const secret of [SHOP, SHOP_RENAMED, SHOP_B, TAX_ID, ADDRESS, REJECT_REASON, REVOKE_REASON]) expect(payloads).not.toContain(secret);
   }, 60_000);
 
-  // Retention counts from the last decision: a document uploaded after the approval (a non-sensitive
-  // edit, so no new decision) is not "decided" yet and must survive the purge of the older one.
+  // Retention counts from the last decision. A document a verified shop adds later is a sensitive
+  // change (re-review): it is not "decided" until the owner acknowledges it, so it survives the purge
+  // of the older one while the re-review is pending, and goes 30 days after the acknowledge.
   it('b2b purge: deletes only documents uploaded before the last decision (real Postgres)', async () => {
     const C = 'Ub2bshopc000000000000000000000000';
     const authC = { idToken: 'liff-token-b2b-c', devUser: null };
@@ -963,6 +964,11 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     };
     const apply = (deliveryWindow: string, documentPaths: string[]) =>
       web.applyB2b(authC, { businessName: 'ร้านทดสอบ ซีซี', businessType: 'reseller', addressText: '7/7 ถนนทดสอบซี', lat: null, lng: null, deliveryWindow, taxId: null, documentPaths, pdpaConsent: true });
+    const docPaths = async (userId: string) =>
+      (await db.query<{ path: string }>('select path from business_documents where user_id = $1', [userId])).rows.map((d) => d.path);
+    const purges = async (userId: string) =>
+      (await db.query<{ actor: string; payload: { count: number } }>(
+        `select actor, payload from user_events where user_id = $1 and event = 'B2B_DOCS_PURGED'`, [userId])).rows;
     const MIN = 60_000;
     try {
       const c1 = await uploadDoc();
@@ -973,23 +979,35 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
       await web.approveB2bCustomer(OWNER_TOKEN, cId, (await web.getB2bCustomer(OWNER_TOKEN, cId)).updatedAt);
       const approvedAt = Date.now();
 
+      // A new document on a verified shop → re-review; the decision time does not move yet.
       vi.setSystemTime(Date.now() + MIN);
       const c2 = await uploadDoc();
-      const edited = await apply('10:00-12:00', [c2]); // window only: no re-review, no new decision
-      expect(edited).toMatchObject({ type: 'B2B', b2b: { status: 'VERIFIED', needsRereview: false, deliveryWindow: '10:00-12:00' } });
+      const edited = await apply('10:00-12:00', [c2]);
+      expect(edited).toMatchObject({ type: 'B2B', b2b: { status: 'VERIFIED', needsRereview: true, deliveryWindow: '10:00-12:00' } });
+      expect((await web.getB2bCustomer(OWNER_TOKEN, cId)).rereviewFields).toEqual(['documents']);
       const decided = (await db.query<{ decided_at: Date }>('select decided_at from business_profiles where user_id = $1', [cId])).rows[0]!;
       expect(new Date(decided.decided_at).getTime()).toBe(approvedAt);
 
+      // 31 days after the approval, re-review still pending: C1 purged, C2 kept.
       vi.setSystemTime(approvedAt + 31 * 86_400_000);
       await runScheduled(deps, CRONS.CLEANUP);
-
-      const docs = (await db.query<{ path: string }>('select path from business_documents where user_id = $1', [cId])).rows;
-      expect(docs.map((d) => d.path)).toEqual([c2]);
+      expect(await docPaths(cId)).toEqual([c2]);
       expect(storage.objects.has(c1)).toBe(false);
       expect(storage.objects.has(c2)).toBe(true);
-      const purged = (await db.query<{ actor: string; payload: { count: number } }>(
-        `select actor, payload from user_events where user_id = $1 and event = 'B2B_DOCS_PURGED'`, [cId])).rows;
-      expect(purged).toEqual([{ actor: 'system', payload: { count: 1 } }]);
+      expect(await purges(cId)).toEqual([{ actor: 'system', payload: { count: 1 } }]);
+
+      // The owner acknowledges (deciding on C2); 31 days later C2 is purged too.
+      const acked = await web.acknowledgeB2bCustomer(OWNER_TOKEN, cId, (await web.getB2bCustomer(OWNER_TOKEN, cId)).updatedAt);
+      expect(acked).toMatchObject({ status: 'VERIFIED', needsRereview: false });
+      const ackedAt = Date.now();
+      vi.setSystemTime(ackedAt + 29 * 86_400_000);
+      await runScheduled(deps, CRONS.CLEANUP);
+      expect(await docPaths(cId)).toEqual([c2]);
+      vi.setSystemTime(ackedAt + 31 * 86_400_000);
+      await runScheduled(deps, CRONS.CLEANUP);
+      expect(await docPaths(cId)).toEqual([]);
+      expect(storage.objects.has(c2)).toBe(false);
+      expect(await purges(cId)).toEqual([{ actor: 'system', payload: { count: 1 } }, { actor: 'system', payload: { count: 1 } }]);
     } finally {
       vi.useRealTimers();
     }
