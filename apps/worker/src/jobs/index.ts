@@ -2,7 +2,7 @@
 import type { Deps } from '../deps';
 import { refreshQuota } from '../line/quota';
 import { runImageCleanup } from './cleanup';
-import { runAbandonment, runOwnerReminders, runPaymentExpiry } from './timers';
+import { runAbandonment, runOwnerReminders, runPaymentExpiry, type ActionBudget } from './timers';
 
 export const CRONS = {
   EVERY_MINUTE: '* * * * *',
@@ -22,11 +22,16 @@ export async function runScheduled(deps: Deps, cron: string): Promise<Record<str
     }
   };
   switch (cron) {
-    case CRONS.EVERY_MINUTE:
-      await safe('ownerReminders', () => runOwnerReminders(deps));
-      await safe('paymentExpiry', () => runPaymentExpiry(deps));
-      await safe('abandonment', () => runAbandonment(deps));
+    case CRONS.EVERY_MINUTE: {
+      // One action budget for the whole run, so a backlog can't go past the Workers Free limit of
+      // 50 subrequests mid-order (status changed, audit row or owner alert lost). Payment expiry
+      // goes first: it closes the payment window, the most time-sensitive of the three.
+      const budget: ActionBudget = { left: deps.cfg.CRON_MAX_ACTIONS_PER_RUN };
+      await safe('paymentExpiry', () => runPaymentExpiry(deps, budget));
+      await safe('ownerReminders', () => runOwnerReminders(deps, budget));
+      await safe('abandonment', () => runAbandonment(deps, budget));
       break;
+    }
     case CRONS.QUOTA:
       await safe('quota', async () => (await refreshQuota(deps)).mode);
       break;

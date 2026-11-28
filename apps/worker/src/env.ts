@@ -58,6 +58,12 @@ export const ConfigSchema = z.object({
   PAYMENT_EXPIRY_MINUTES: num(45),
   OWNER_REMINDER_MINUTES: num(15),
   ABANDON_HOURS: num(24),
+  /**
+   * Max orders the every-minute timers act on in one run (all 3 timers together). Each action is
+   * ~4–6 subrequests (+1 per owner push device); Workers Free allows 50 per invocation. The rest
+   * wait for the next minute. Raise on Workers Paid.
+   */
+  CRON_MAX_ACTIONS_PER_RUN: num(6),
   /** After DELIVERED, a non-order chat message still gets that order's status card for this long. */
   RECENT_ORDER_STATUS_HOURS: num(24),
   DEFAULT_MARKUP: num(0.25),
