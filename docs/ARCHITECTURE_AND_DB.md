@@ -70,6 +70,7 @@ flowchart LR
 
 ### 1.2 Why these hosts
 - **Cloudflare Workers Free:** no cold-start sleep (reply token must be used quickly), Cron Triggers included, 100k requests/day is far above our load (incl. LIFF heartbeats). Requires `nodejs_compat` flag. Koyeb is the fallback if a needed Node library will not run on Workers.
+- **Subrequests: 50 per invocation on Free** (every `fetch()`, including each Supabase call, Realtime broadcast and Web Push). List endpoints therefore use batch reads (constant calls per request), and the every-minute timers share one action budget per run (`CRON_MAX_ACTIONS_PER_RUN`, default 6; payment expiry first, then owner reminders, then abandonment). The rest wait for the next minute. Guarded by `apps/worker/test/e2e/cronBudget.e2e.test.ts` and the call-count tests.
 - **Next.js on Vercel Hobby or Cloudflare Pages:** static + client-side app; all privileged logic lives in the Worker.
 - **Supabase Free:** 500 MB DB, 1 GB storage, Realtime, Auth. Pauses after ~7 days of inactivity (risk D5).
 
