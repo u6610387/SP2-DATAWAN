@@ -41,6 +41,7 @@ Reject or redesign anything that needs a paid plan after handover:
 - Modes: `< 80%` NORMAL · `≥ 80%` WARNING (P1 only, yellow banner) · `≥ 95%` QUOTA_SAVER (no push until 00:00 Asia/Bangkok on the 1st).
 - `used = max(LINE totalUsage, local_count)`.
 - Skip push if customer is present in LIFF (`customer_last_seen_at` within `LIFF_PRESENCE_SECONDS`), if `push_count ≥ MAX_PUSH_PER_ORDER`, or if today's pacing budget is spent.
+- Only 3 push reasons exist (`LIFECYCLE_PUSHES`: `PRICE_READY` → `TOTAL_READY` → `TRACKING_LINK`), at most one push each per order. Counter, hold and owner notes never push. The price quote is P2: it yields to total + tracking when quota is tight (`PUSH_DAILY_RESERVE_P1`).
 - Never push for: 15-min reassurance, expiry notices, generic status, marketing. Use LIFF + pull-on-message replies.
 - Owner alerts → Web Push, never LINE push.
 

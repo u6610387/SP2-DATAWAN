@@ -69,17 +69,21 @@ export async function ownerSetPrice(deps: Deps, order: OrderRow, amountSatang: n
   });
   const products = await deps.repo.listActiveProducts();
   const push = await sendPushGuarded(deps, {
-    order: res.order, priority: 'P1', reason: 'PRICE_READY',
+    order: res.order, reason: 'PRICE_READY',
     messages: [flex.priceCard(res.order, withNames(costed, products), deps.cfg.LIFF_ID)],
   });
   return { ok: true, order: push.order, items: costed, margin, push };
 }
 
 export type OwnerCounterResult =
-  | { ok: true; order: OrderRow; items: OrderItemRow[]; margin: Margin; push: GuardedPushResult }
+  | { ok: true; order: OrderRow; items: OrderItemRow[]; margin: Margin }
   | Conflict;
 
-/** Owner counters the customer's counter-offer (NEGOTIATING only). */
+/**
+ * Owner counters the customer's counter-offer (NEGOTIATING only). No LINE push: the customer sees
+ * the new price in LIFF (realtime) and in the chat reply when they message (push slots are only
+ * for LIFECYCLE_PUSHES).
+ */
 export async function ownerCounter(deps: Deps, order: OrderRow, amountSatang: number): Promise<OwnerCounterResult> {
   const items = await deps.repo.getItems(order.id);
   const margin = marginFor(amountSatang, items);
@@ -90,12 +94,7 @@ export async function ownerCounter(deps: Deps, order: OrderRow, amountSatang: nu
     order_id: order.id, round: await nextRound(deps, order.id), actor: 'owner', action: 'counter',
     amount_satang: amountSatang, margin_satang: margin.marginSatang, message: null,
   });
-  const products = await deps.repo.listActiveProducts();
-  const push = await sendPushGuarded(deps, {
-    order: res.order, priority: 'P2', reason: 'OWNER_COUNTER',
-    messages: [flex.priceCard(res.order, withNames(items, products), deps.cfg.LIFF_ID, `ร้านเสนอราคาใหม่ ${formatTHB(amountSatang)}`)],
-  });
-  return { ok: true, order: push.order, items, margin, push };
+  return { ok: true, order: res.order, items, margin };
 }
 
 export type OwnerAcceptCounterResult =
@@ -123,9 +122,9 @@ export async function ownerAcceptCounter(deps: Deps, order: OrderRow): Promise<O
   return { ok: true, order: res.order, items, margin, amountSatang: counter.amount_satang };
 }
 
-export type OwnerHoldResult = { ok: true; order: OrderRow; push: GuardedPushResult } | Conflict;
+export type OwnerHoldResult = { ok: true; order: OrderRow } | Conflict;
 
-/** Owner stands by the current price during a negotiation. */
+/** Owner stands by the current price during a negotiation. No LINE push (LIFF + chat reply). */
 export async function ownerHold(deps: Deps, order: OrderRow): Promise<OwnerHoldResult> {
   const res = await applyEvent(deps, order, 'OWNER_HOLD', 'owner');
   if (!res.ok) return asConflict(res);
@@ -134,12 +133,7 @@ export async function ownerHold(deps: Deps, order: OrderRow): Promise<OwnerHoldR
     order_id: order.id, round: await nextRound(deps, order.id), actor: 'owner', action: 'hold',
     amount_satang: order.product_price_satang, margin_satang: null, message: null,
   });
-  const [items, products] = await Promise.all([deps.repo.getItems(order.id), deps.repo.listActiveProducts()]);
-  const push = await sendPushGuarded(deps, {
-    order: res.order, priority: 'P2', reason: 'OWNER_HOLD',
-    messages: [flex.priceCard(res.order, withNames(items, products), deps.cfg.LIFF_ID, 'ร้านขอยืนราคาเดิมนะคะ')],
-  });
-  return { ok: true, order: push.order, push };
+  return { ok: true, order: res.order };
 }
 
 export type OwnerSetShippingResult =
@@ -160,7 +154,7 @@ export async function ownerSetShipping(deps: Deps, order: OrderRow, feeSatang: n
     res.order.address_id ? deps.repo.getAddress(res.order.address_id) : Promise.resolve(null),
     deps.repo.getUser(res.order.user_id),
   ]);
-  const push = await sendPushGuarded(deps, { order: res.order, priority: 'P1', reason: 'TOTAL_READY', messages: [flex.totalCard(res.order, deps.cfg.LIFF_ID, { id: deps.cfg.PROMPTPAY_ID, name: deps.cfg.PROMPTPAY_RECEIVER_NAME })] });
+  const push = await sendPushGuarded(deps, { order: res.order, reason: 'TOTAL_READY', messages: [flex.totalCard(res.order, deps.cfg.LIFF_ID, { id: deps.cfg.PROMPTPAY_ID, name: deps.cfg.PROMPTPAY_RECEIVER_NAME })] });
   return { ok: true, order: push.order, lalamoveCard: flex.lalamoveCardText(push.order, address, user), push };
 }
 
@@ -205,7 +199,7 @@ export type OwnerDispatchResult = { ok: true; order: OrderRow; push: GuardedPush
 export async function ownerDispatch(deps: Deps, order: OrderRow, trackingUrl: string): Promise<OwnerDispatchResult> {
   const res = await applyEvent(deps, order, 'OWNER_DISPATCH', 'owner', { tracking_url: trackingUrl, dispatched_at: deps.now().toISOString() }, { tracking_url: trackingUrl });
   if (!res.ok) return asConflict(res);
-  const push = await sendPushGuarded(deps, { order: res.order, priority: 'P1', reason: 'TRACKING_LINK', messages: [flex.dispatchedMessage(res.order)] });
+  const push = await sendPushGuarded(deps, { order: res.order, reason: 'TRACKING_LINK', messages: [flex.dispatchedMessage(res.order)] });
   return { ok: true, order: push.order, push };
 }
 

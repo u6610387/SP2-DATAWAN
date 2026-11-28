@@ -81,8 +81,10 @@ describe('owner commands', () => {
     expect(h.line.lastReplyText()).toContain('900 บาท');
     const send = findPostback(h.line.lastReply(), 'note_send');
     await h.send('U00000000000000000000000000000a11', { type: 'postback', postback: { data: send } });
-    expect(h.line.pushes).toHaveLength(1);
+    // Notes never use a push slot (only price quote, total, tracking do).
+    expect(h.line.pushes).toHaveLength(0);
     expect(h.repo.events.some((e) => e.event === 'NOTE_APPROVED' && e.actor === 'owner')).toBe(true);
+    expect(h.line.lastReplyText()).toContain('ไม่ใช้ push');
   });
 });
 
@@ -164,7 +166,7 @@ describe('timers never move money forward', () => {
     expect(a1!.status).toBe('PAYMENT_EXPIRED');
     expect(a2!.owner_reminded_at).not.toBeNull();
     expect(h.notifier.alerts.map((a) => a.kind)).toEqual(expect.arrayContaining(['PAYMENT_EXPIRED', 'OWNER_TIMEOUT']));
-    expect(h.line.pushes).toHaveLength(1); // only the price-ready push from A1; timers never push
+    expect(h.line.pushes.length).toBe(2); // A1's price quote + total (lifecycle pushes); timers never push
     h.clock.advance(25 * 60);
     await runScheduled(h.deps, CRONS.EVERY_MINUTE);
     expect(h.repo.orders[0]!.status).toBe('CANCELLED');   // expired + idle 24h
@@ -172,9 +174,10 @@ describe('timers never move money forward', () => {
   });
 });
 
-describe('pull-on-message while AWAITING_PAYMENT (total push deferred by ORDER_CAP)', () => {
+describe('pull-on-message while AWAITING_PAYMENT (total push deferred: quota tight)', () => {
   it('replies with the payment card: breakdown, PromptPay details, slip instructions and pay button', async () => {
     const h = makeHarness();
+    h.deps.cfg.MAX_PUSH_PER_ORDER = 1; // e.g. the owner lowered the cap: the price quote used the only slot
     await toAwaitingPayment(h);
     const o = h.repo.orders.at(-1)!;
     expect(o.status).toBe('AWAITING_PAYMENT');

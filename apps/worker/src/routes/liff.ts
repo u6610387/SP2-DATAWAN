@@ -16,6 +16,7 @@ import { PAYABLE } from '../handlers/customer';
 import { splitPath } from '../services/storage';
 import { applyB2b } from '../services/b2b';
 import { toCustomerAccountView, toCustomerOrderSummary, toCustomerOrderView } from '../services/views';
+import { latestShopNote } from '../services/shopNote';
 import { confirmFromLiff, reorder, reuseAddressFor, setOrderAddress } from '../services/reorder';
 import { apiError, checkIfMatch, conflictError, deliveryIncompleteError } from './respond';
 
@@ -58,11 +59,14 @@ async function buildCustomerView(deps: Deps, order: OrderRow): Promise<CustomerO
     deps.repo.listActiveProducts(),
     deps.repo.listNegotiations(order.id),
   ]);
-  const [address, reuseAddress] = await Promise.all([
+  const [address, reuseAddress, events] = await Promise.all([
     order.address_id ? deps.repo.getAddress(order.address_id) : Promise.resolve(null),
     reuseAddressFor(deps, order),
+    deps.repo.listOrderEvents(order.id),
   ]);
-  return toCustomerOrderView({ order, items, products, negotiations, address, reuseAddress, promptpayId: deps.cfg.PROMPTPAY_ID });
+  const note = latestShopNote(events);
+  const shopNote = note ? { text: note.text, at: note.at } : null;
+  return toCustomerOrderView({ order, items, products, negotiations, address, reuseAddress, shopNote, promptpayId: deps.cfg.PROMPTPAY_ID });
 }
 
 async function buildAccountView(deps: Deps, user: UserRow): Promise<CustomerAccountView> {

@@ -134,10 +134,11 @@ export const th = {
     noSlip: (code: string) => `${code} ยังไม่มีสลิป`,
     noteDraft: 'ร่างข้อความถึงลูกค้า (กด "ส่ง" เพื่อส่ง หรือแก้ในหน้า Dashboard):',
     sendButton: 'ส่ง',
-    noteSent: 'ส่งข้อความถึงลูกค้าแล้ว',
-    noteDeferred: 'บันทึกข้อความแล้ว ลูกค้าจะเห็นในหน้าออเดอร์ (ไม่ได้ส่ง push เพื่อประหยัดโควตา)',
+    noteSaved: 'บันทึกข้อความแล้ว ลูกค้าจะเห็นในหน้าออเดอร์ (LIFF) และในแชทตอนทักมาครั้งถัดไป (ไม่ใช้ push)',
     aiUnavailable: 'AI ไม่ว่าง กรุณาพิมพ์ข้อความเองในหน้า Dashboard',
     pushDeferred: 'ลูกค้าจะเห็นในหน้าออเดอร์/ตอนทักมา (ไม่ได้ส่ง push)',
+    /** Counter / hold: never pushed (push slots are only price quote, total, tracking). */
+    noPushLiffOnly: 'ลูกค้าจะเห็นในหน้าออเดอร์ (LIFF) และตอนทักมา (ไม่ใช้ push)',
     pushSent: 'แจ้งลูกค้าทาง LINE แล้ว',
   },
 };

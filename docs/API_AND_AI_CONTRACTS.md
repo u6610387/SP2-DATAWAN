@@ -68,6 +68,7 @@ export interface CustomerOrderView {
   delivery: { recipientName: string | null; addressText: string | null; lat: number | null; lng: number | null; requestedDeliveryAt: string | null };
   realtime: { channel: string };     // 'order:{id}:{token}'
   ownerDelayed: boolean;             // true after 15-min owner timeout → show reassurance
+  shopNote?: { text: string; at: string } | null; // LIFF only: latest owner-approved note (notes are never pushed)
 }
 
 /** What the owner dashboard sees. */
@@ -298,12 +299,15 @@ QR image in chat: LIFF renders the QR from `promptpayPayload`. If chat-only cust
 
 ```ts
 // apps/worker/src/line/quota.ts — the ONLY place that calls pushMessage
-export type PushPriority = 'P1' | 'P2';
-export async function sendPushGuarded(args: {
-  orderId: string; to: string; messages: LineMessage[]; priority: PushPriority; reason: string;
-}): Promise<{ sent: boolean; deferredReason?: 'PRESENT' | 'QUOTA_SAVER' | 'WARNING_P2' | 'ORDER_CAP' | 'DAILY_BUDGET' }>;
+export const LIFECYCLE_PUSHES = ['PRICE_READY', 'TOTAL_READY', 'TRACKING_LINK'] as const; // the only push reasons
+export const PUSH_PRIORITY = { PRICE_READY: 'P2', TOTAL_READY: 'P1', TRACKING_LINK: 'P1' } as const;
+export async function sendPushGuarded(deps, args: {
+  order: OrderRow; messages: LineMessage[]; reason: (typeof LIFECYCLE_PUSHES)[number];
+}): Promise<{ sent: boolean; deferredReason?: 'INACTIVE_USER' | 'ALREADY_SENT' | 'PRESENT' | 'QUOTA_SAVER' | 'WARNING_P2' | 'ORDER_CAP' | 'DAILY_BUDGET' | 'DAILY_RESERVE'; order: OrderRow }>;
 ```
-Decision order: present? → mode → per-order cap → daily budget → send (increment `orders.push_count`, `quota_logs.local_count`). Every decision writes `order_events` (`PUSH_SENT` / `PUSH_DEFERRED`).
+**Push slots (2026-11-28):** an order gets at most 3 pushes, one per lifecycle reason: price quote → total + PromptPay/slip → Lalamove dispatched + tracking (`MAX_PUSH_PER_ORDER=3`). A re-quote or fee correction never pushes again (`ALREADY_SENT`). Owner counter, hold and notes never push: the customer sees them in LIFF (realtime; notes as `shopNote`) and in the next free chat reply (a note is shown once, event `NOTE_SHOWN_IN_CHAT`).
+
+Decision order: inactive user → already sent for this reason → present in LIFF → mode (QUOTA_SAVER: none; WARNING: P1 only) → per-order cap → daily budget → **P1 reserve** (a P2 push, i.e. the price quote, needs more than `PUSH_DAILY_RESERVE_P1` (3) pushes left today, so total + tracking win when quota is tight) → send (increment `orders.push_count` via `patchOrder`, so the version bump is broadcast to LIFF, and `quota_logs.local_count`). Every decision writes `order_events` (`PUSH_SENT` / `PUSH_DEFERRED`).
 
 ---
 

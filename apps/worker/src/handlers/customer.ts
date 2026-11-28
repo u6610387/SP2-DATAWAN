@@ -24,6 +24,7 @@ import { isMapsUrl, looksLikeAddress, parseMapsLink } from '../services/location
 import { suggestPrice } from '../services/pricing';
 import type { NewOrderItem } from '../services/repo';
 import { withNames } from '../services/itemNames';
+import { withChatNotes } from '../services/shopNote';
 import { bangkokHHMM } from '../util/time';
 import { infoReplyText, matchInfoCommand, shippingOrder } from './infoCommands';
 
@@ -310,6 +311,11 @@ export async function handleCustomerEvent(deps: Deps, ev: webhook.Event, lineUse
   }
   const user = await deps.repo.upsertUserByLineId(lineUserId);
   if (ev.type === 'follow') return reply(deps, replyToken, [flex.textMsg(th.welcome)]);
+  return routeCustomerEvent(withChatNotes(deps, user.id), ev, user, replyToken);
+}
+
+/** Every reply below carries the customer's unseen shop notes first (services/shopNote.ts). */
+async function routeCustomerEvent(deps: Deps, ev: webhook.Event, user: UserRow, replyToken: string | undefined): Promise<void> {
 
   if (ev.type === 'postback') return handlePostback(deps, user, ev, replyToken);
   if (ev.type !== 'message') return;

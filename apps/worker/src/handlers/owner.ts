@@ -9,7 +9,7 @@ import type { Deps } from '../deps';
 import type { LineMessage } from '../line/api';
 import * as flex from '../line/flex';
 import { parseOwnerCommand, type OwnerCommand } from '../line/ownerCommands';
-import { sendPushGuarded, type GuardedPushResult } from '../line/quota';
+import type { GuardedPushResult } from '../line/quota';
 import { logEvent } from '../services/orders';
 import * as actions from '../services/orderActions';
 import { withNames } from '../services/itemNames';
@@ -59,7 +59,7 @@ async function setPrice(deps: Deps, order: OrderRow, amountSatang: number, note:
   if (order.status === 'NEGOTIATING') {
     const r = await actions.ownerCounter(deps, order, amountSatang);
     if (!r.ok) return [flex.ownerText(conflictOr(r))];
-    return [flex.priceEcho(r.order, 'เสนอใหม่', amountSatang, r.items, r.margin, pushNote(r.push))];
+    return [flex.priceEcho(r.order, 'เสนอใหม่', amountSatang, r.items, r.margin, th.owner.noPushLiffOnly)];
   }
   const r = await actions.ownerSetPrice(deps, order, amountSatang, note);
   if (!r.ok) return [flex.ownerText(conflictOr(r))];
@@ -79,7 +79,7 @@ async function acceptCounter(deps: Deps, order: OrderRow): Promise<LineMessage[]
 async function holdPrice(deps: Deps, order: OrderRow): Promise<LineMessage[]> {
   const r = await actions.ownerHold(deps, order);
   if (!r.ok) return [flex.ownerText(conflictOr(r))];
-  return [flex.ownerText(`✅ ${order.code} ยืนราคา ${formatTHB(r.order.product_price_satang ?? 0)}\n${pushNote(r.push)}`)];
+  return [flex.ownerText(`✅ ${order.code} ยืนราคา ${formatTHB(r.order.product_price_satang ?? 0)}\n${th.owner.noPushLiffOnly}`)];
 }
 
 async function setShipping(deps: Deps, order: OrderRow, feeSatang: number): Promise<LineMessage[]> {
@@ -159,8 +159,9 @@ async function sendNote(deps: Deps, orderId: string, eventId: string): Promise<L
   const draft = (ev?.payload as { note?: { message_th: string } } | null)?.note;
   if (!order || !ev || ev.event !== 'NOTE_DRAFT' || !draft) return [flex.ownerText(th.owner.noCandidate)];
   await logEvent(deps, order, 'owner', 'NOTE_APPROVED', { draft_event_id: eventId, message_th: draft.message_th });
-  const push = await sendPushGuarded(deps, { order, priority: 'P2', reason: 'OWNER_NOTE', messages: [flex.textMsg(draft.message_th)] });
-  return [flex.ownerText(push.sent ? th.owner.noteSent : th.owner.noteDeferred)];
+  // No LINE push for notes: shown in the LIFF order room, and once in the next chat reply (shopNote.ts).
+  await deps.realtime.orderUpdated(order);
+  return [flex.ownerText(th.owner.noteSaved)];
 }
 
 export async function handleOwnerEvent(deps: Deps, ev: webhook.Event): Promise<void> {
