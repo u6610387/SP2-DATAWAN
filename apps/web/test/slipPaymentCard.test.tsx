@@ -49,15 +49,23 @@ describe('SlipPaymentCard', () => {
     for (const rule of ['ยอดเงิน', 'ผู้รับ', 'เวลาโอน']) expect(html).toContain(`${rule} · ${th.orderDetail.slipNotChecked}`);
   });
 
-  it('manual mode: shows the checklist and keeps ยืนยันรับเงิน disabled until it is filled', () => {
-    const html = render(order({ checks: [{ rule: 'READABLE', result: 'WARN', detail: 'manual' }] }));
-    expect(html).toContain(th.orderDetail.slipChecklistTitle);
-    expect(html).toContain(th.orderDetail.slipChecklistAmount);
-    expect(html).toContain(th.orderDetail.slipChecklistReceiver);
-    expect(html).toContain('type="datetime-local"');
-    expect(html).toContain(th.orderDetail.slipChecklistIncomplete);
-    const confirm = html.match(/<button[^>]*>(?:(?!<\/button>).)*ยืนยันรับเงิน/)?.[0] ?? '';
-    expect(confirm).toContain('disabled');
+  it('manual mode: no inputs needed — ยืนยันรับเงิน is enabled; ปฏิเสธ waits for a reason', () => {
+    const html = render(order({ checks: [{ rule: 'READABLE', result: 'WARN', detail: 'manual' }, { rule: 'REFERENCE', result: 'PASS', detail: 'qr ok' }] }));
+    expect(html).not.toContain('type="datetime-local"');
+    expect(html).not.toContain('type="checkbox"');
+    const button = (label: string) => html.match(new RegExp(`<button[^>]*>(?:(?!</button>).)*${label}`))?.[0] ?? '';
+    expect(button(th.orderDetail.confirmPayment)).not.toContain('disabled=""');
+    expect(button(th.orderDetail.rejectSlip)).toContain('disabled=""');
+    expect(html).toContain(th.orderDetail.rejectNeedsReason);
+  });
+
+  it('a duplicate / tampered QR (FAIL): red banner, and confirm needs a reason', () => {
+    const html = render(order({ result: 'FAIL', checks: [{ rule: 'REFERENCE', result: 'FAIL', detail: 'สลิปซ้ำ: เคยใช้กับออเดอร์ A3 แล้ว' }] }));
+    expect(html).toContain(th.orderDetail.slipMismatchBanner);
+    expect(html).toContain('เลขอ้างอิง (QR): สลิปซ้ำ');
+    expect(html).toContain(th.orderDetail.slipOverrideRequired);
+    const confirm = html.match(new RegExp(`<button[^>]*>(?:(?!</button>).)*${th.orderDetail.confirmPayment}`))?.[0] ?? '';
+    expect(confirm).toContain('disabled=""');
   });
 
   it('AI already read the amount (paid mode): no checklist; stored FAILs get the red banner', () => {
@@ -65,7 +73,6 @@ describe('SlipPaymentCard', () => {
       { rule: 'READABLE', result: 'PASS', detail: 'อ่านครบ' },
       { rule: 'AMOUNT', result: 'FAIL', detail: 'สลิป ฿105.00 ≠ ยอด ฿1.00' },
     ] }));
-    expect(html).not.toContain(th.orderDetail.slipChecklistTitle);
     expect(html).toContain('role="alert"');
     expect(html).toContain(th.orderDetail.slipMismatchBanner);
     expect(html).toContain('ยอดเงิน: สลิป ฿105.00 ≠ ยอด ฿1.00');

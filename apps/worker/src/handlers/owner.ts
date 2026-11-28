@@ -93,7 +93,6 @@ async function confirmPayment(deps: Deps, order: OrderRow, overrideReason: strin
   const r = await actions.ownerConfirmPayment(deps, order, deps.cfg.OWNER_AUTH_USER_ID, overrideReason);
   if (!r.ok) {
     if (r.reason === 'NO_SLIP') return [flex.ownerText(th.owner.noSlip(order.code))];
-    if (r.reason === 'NEEDS_CHECKLIST') return [flex.ownerText(th.owner.paidNeedsChecklist(order.code))];
     if (r.reason === 'NEEDS_OVERRIDE') return [flex.ownerText(th.owner.paidNeedsPass(order.code, r.checkResult))];
     return [flex.ownerText(conflictOr(r))];
   }

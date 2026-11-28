@@ -15,11 +15,8 @@ import {
   type OrderItemRow,
   type OrderRow,
   type PaymentRow,
-  type CheckLevel,
   type SlipCheck,
   type SlipCheckResult,
-  ownerSlipChecks,
-  type OwnerSlipChecklistInput,
 } from '@datawan/shared';
 import type { Deps } from '../deps';
 import * as flex from '../line/flex';
@@ -165,64 +162,32 @@ export async function ownerSetShipping(deps: Deps, order: OrderRow, feeSatang: n
 export type OwnerConfirmPaymentResult =
   | { ok: true; order: OrderRow; payment: PaymentRow }
   | { ok: false; reason: 'NO_SLIP'; order: OrderRow }
-  | { ok: false; reason: 'NEEDS_CHECKLIST'; order: OrderRow }
   | { ok: false; reason: 'NEEDS_OVERRIDE'; order: OrderRow; checkResult: SlipCheckResult; checks: SlipCheck[] }
   | Conflict;
 
-const LEVEL: Record<CheckLevel, number> = { PASS: 0, WARN: 1, FAIL: 2 };
-const worstOf = (checks: SlipCheck[]): CheckLevel => checks.reduce<CheckLevel>((a, c) => (LEVEL[c.result] > LEVEL[a] ? c.result : a), 'PASS');
-const OWNER_RULES = new Set(['AMOUNT', 'RECEIVER', 'TIME']);
-
 /**
- * Owner confirms the latest payment slip. Code flags, the owner decides (§3.1):
- * - nothing read the slip's amount (GEMINI_SLIP_MODE=manual) → the owner's checklist (amount,
- *   receiver tick, slip time) is required and becomes the AMOUNT / RECEIVER / TIME checks;
- * - any WARN/FAIL overall → `overrideReason` required.
+ * Owner confirms the latest payment slip after looking at it (§3.1: code flags, the owner decides).
+ * No extra inputs for a normal slip: in GEMINI_SLIP_MODE=manual every slip is WARN ("check it
+ * yourself"), and the owner's tap is that check. Only a FAIL (duplicate / tampered QR, or an AI-read
+ * mismatch) needs a typed `overrideReason`.
  */
-export async function ownerConfirmPayment(
-  deps: Deps,
-  order: OrderRow,
-  ownerId: string,
-  overrideReason: string | null,
-  checklist: OwnerSlipChecklistInput | null = null,
-): Promise<OwnerConfirmPaymentResult> {
+export async function ownerConfirmPayment(deps: Deps, order: OrderRow, ownerId: string, overrideReason: string | null): Promise<OwnerConfirmPaymentResult> {
   const payment = await deps.repo.latestPayment(order.id);
   if (!payment) return { ok: false, reason: 'NO_SLIP', order };
-
-  const details = (payment.check_details ?? {}) as { checks?: SlipCheck[]; [k: string]: unknown };
-  let checks = details.checks ?? [];
-  const aiReadAmount = checks.some((c) => c.rule === 'AMOUNT');
-  if (checklist) {
-    const owner = ownerSlipChecks(checklist, { totalSatang: order.total_satang, orderCreatedAt: order.created_at, now: deps.now() });
-    checks = [
-      // The owner read the slip: "nobody read it" no longer applies.
-      ...checks.filter((c) => !OWNER_RULES.has(c.rule)).map((c) => (c.rule === 'READABLE' ? { rule: 'READABLE' as const, result: 'PASS' as const, detail: 'เจ้าของร้านตรวจจากรูปสลิป (กรอกยอด ผู้รับ และเวลา)' } : c)),
-      ...owner,
-    ];
-  } else if (!aiReadAmount) {
-    return { ok: false, reason: 'NEEDS_CHECKLIST', order };
-  }
-  const result = worstOf(checks);
-  if (result !== 'PASS' && !overrideReason) return { ok: false, reason: 'NEEDS_OVERRIDE', order, checkResult: result, checks };
+  const checks = ((payment.check_details ?? {}) as { checks?: SlipCheck[] }).checks ?? [];
+  const failed = payment.check_result === 'FAIL' || checks.some((c) => c.result === 'FAIL');
+  if (failed && !overrideReason) return { ok: false, reason: 'NEEDS_OVERRIDE', order, checkResult: 'FAIL', checks };
 
   const now = deps.now().toISOString();
-  const ownerChecklist = checklist ? { amount_satang: checklist.amountSatang, receiver_is_shop: checklist.receiverIsShop, slip_time: checklist.slipTime } : null;
   const res = await applyEvent(deps, order, 'OWNER_CONFIRM_PAYMENT', 'owner', { paid_at: now, paid_confirmed_by: ownerId }, {
     payment_id: payment.id,
-    check_result: result,
+    check_result: payment.check_result,
     checks: checks.map((c) => `${c.rule}:${c.result}`),
     override_reason: overrideReason,
-    ...(ownerChecklist ? { owner_checklist: ownerChecklist } : {}),
   });
   if (!res.ok) return asConflict(res);
 
-  const updated = await deps.repo.updatePayment(payment.id, {
-    confirmed_by: ownerId,
-    confirmed_at: now,
-    override_reason: overrideReason,
-    check_result: result,
-    check_details: { ...details, checks, ...(ownerChecklist ? { owner_checklist: ownerChecklist } : {}) },
-  });
+  const updated = await deps.repo.updatePayment(payment.id, { confirmed_by: ownerId, confirmed_at: now, override_reason: overrideReason });
   return { ok: true, order: res.order, payment: updated };
 }
 

@@ -120,12 +120,6 @@ async function dbOrder(id: string) {
   return r.rows[0]!;
 }
 
-/** What an owner who checked a correct slip enters (manual slip mode). */
-async function goodChecklist(orderId: string) {
-  const o = await web.ownerFetch<OwnerOrderView>(`/api/owner/orders/${orderId}`, OWNER_TOKEN);
-  return { amountSatang: o.totalSatang!, receiverIsShop: true, slipTime: new Date().toISOString() };
-}
-
 const liffGet = (id: string) => web.liffFetch<CustomerOrderView>(`/api/liff/orders/${id}`, liffAuth);
 const ownerGet = (id: string) => web.ownerFetch<OwnerOrderView>(`/api/owner/orders/${id}`, OWNER_TOKEN);
 
@@ -306,32 +300,15 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     expect(own.latestPayment!.slipImageUrl).toBe(`memory://signed/${path}`); // signed URL for the stored object
     expect(own.latestPayment!.checks[0]!.detail).toBe(SLIP_MANUAL_REVIEW_DETAIL);
 
-    // Nothing read the slip (manual mode): without the owner's checklist nothing changes.
+    // Manual mode: the owner looked at the slip; WARN ("check it yourself") confirms with no extra input.
     const payId = own.latestPayment!.id;
-    const confirm = (body: Record<string, unknown>) => web.ownerFetch(`/api/owner/payments/${payId}/confirm`, OWNER_TOKEN, { method: 'POST', body, ifMatch: own.version });
-    await expect(confirm({ overrideReason: 'looks fine' })).rejects.toMatchObject({ status: 422, code: 'SLIP_CHECKLIST_REQUIRED' });
-    expect((await dbOrder(id)).status).toBe('PAYMENT_REVIEW');
-
-    // Production A19: a 105 THB slip to another shop, timed before the order → 3 FAILs, no reason → refused.
-    const created = (await db.query<{ created_at: Date }>('select created_at from orders where id = $1', [id])).rows[0]!.created_at;
-    const before = new Date(created.getTime() - 3 * 60_000).toISOString();
-    const err = await confirm({ overrideReason: null, slipChecklist: { amountSatang: 10500, receiverIsShop: false, slipTime: before } }).then(() => null, (e: unknown) => e as { status: number; message: string });
-    expect(err).toMatchObject({ status: 422 });
-    expect(err!.message).toContain('AMOUNT FAIL');
-    expect(err!.message).toContain('RECEIVER FAIL');
-    expect(err!.message).toContain('TIME FAIL');
-    expect((await dbOrder(id)).status).toBe('PAYMENT_REVIEW');
-
-    // The owner checked the image and everything matches → PASS, no override reason needed.
-    await confirm({ overrideReason: null, slipChecklist: { amountSatang: own.totalSatang!, receiverIsShop: true, slipTime: new Date().toISOString() } });
+    await web.ownerFetch(`/api/owner/payments/${payId}/confirm`, OWNER_TOKEN, { method: 'POST', body: { overrideReason: null }, ifMatch: own.version });
     expect(await agreedVersion(id, 'PAID')).toBeGreaterThan(v);
-    const confirmed = (await db.query<{ confirmed_by: string; override_reason: string | null; check_result: string; check_details: { checks: { rule: string; result: string }[]; owner_checklist: unknown } }>(
-      'select confirmed_by, override_reason, check_result, check_details from payments where order_id = $1', [id])).rows[0]!;
-    expect(confirmed).toMatchObject({ confirmed_by: OWNER_AUTH, override_reason: null, check_result: 'PASS' });
-    expect(confirmed.check_details.checks.map((c) => `${c.rule}:${c.result}`)).toEqual(['READABLE:PASS', 'AMOUNT:PASS', 'RECEIVER:PASS', 'TIME:PASS']);
-    expect(confirmed.check_details.owner_checklist).toMatchObject({ amount_satang: own.totalSatang, receiver_is_shop: true });
-    const ev = (await db.query<{ actor: string; payload: { checks: string[] } }>(`select actor, payload from order_events where order_id = $1 and event = 'OWNER_CONFIRM_PAYMENT'`, [id])).rows;
-    expect(ev).toEqual([expect.objectContaining({ actor: 'owner', payload: expect.objectContaining({ checks: ['READABLE:PASS', 'AMOUNT:PASS', 'RECEIVER:PASS', 'TIME:PASS'] }) })]);
+    const confirmed = (await db.query<{ confirmed_by: string; override_reason: string | null; check_result: string }>(
+      'select confirmed_by, override_reason, check_result from payments where order_id = $1', [id])).rows[0]!;
+    expect(confirmed).toEqual({ confirmed_by: OWNER_AUTH, override_reason: null, check_result: 'WARN' });
+    const ev = (await db.query<{ actor: string; payload: { check_result: string; checks: string[] } }>(`select actor, payload from order_events where order_id = $1 and event = 'OWNER_CONFIRM_PAYMENT'`, [id])).rows;
+    expect(ev).toEqual([expect.objectContaining({ actor: 'owner', payload: expect.objectContaining({ check_result: 'WARN', checks: ['READABLE:WARN'] }) })]);
   }, 60_000);
 
   /** Fresh order driven to PAYMENT_REVIEW with an uploaded slip, through the same calls as the apps. */
@@ -399,10 +376,13 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     expect(ev).toEqual([{ actor: 'owner', n: 4 }]);
 
     // The same slip sent for another order → FAIL "duplicate", naming the first order.
-    await web.ownerFetch(`/api/owner/payments/${a.paymentId}/confirm`, OWNER_TOKEN, { method: 'POST', body: { overrideReason: 'checked image', slipChecklist: await goodChecklist(a.id) }, ifMatch: (await ownerGet(a.id)).version });
+    await web.ownerFetch(`/api/owner/payments/${a.paymentId}/confirm`, OWNER_TOKEN, { method: 'POST', body: { overrideReason: 'checked image' }, ifMatch: (await ownerGet(a.id)).version });
     const b = await orderInPaymentReview('กั้ง 1 โล');
     view = await qrCheck(b.paymentId, qr);
     expect(refCheck(view)).toEqual({ rule: 'REFERENCE', result: 'FAIL', detail: `สลิปซ้ำ: เลขอ้างอิง ${transRef} เคยใช้กับออเดอร์ ${a.code} แล้ว` });
+    // A FAIL is the one case where confirming needs the owner's typed reason.
+    await expect(web.ownerFetch(`/api/owner/payments/${b.paymentId}/confirm`, OWNER_TOKEN, { method: 'POST', body: { overrideReason: null }, ifMatch: (await ownerGet(b.id)).version })).rejects.toMatchObject({ status: 422 });
+    expect((await dbOrder(b.id)).status).toBe('PAYMENT_REVIEW');
     expect(view.latestPayment!.result).toBe('FAIL');
     expect((await db.query<{ reference_no: string | null }>('select reference_no from payments where id = $1', [b.paymentId])).rows[0]!.reference_no).toBeNull();
     // FAIL still lets the owner decide (reject here); it is never auto-rejected or auto-approved.
@@ -555,7 +535,7 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     const paid = async (text: string) => {
       const o = await orderInPaymentReview(text);
       const v = (await ownerGet(o.id)).version;
-      await web.ownerFetch(`/api/owner/payments/${o.paymentId}/confirm`, OWNER_TOKEN, { method: 'POST', body: { overrideReason: 'checked image', slipChecklist: await goodChecklist(o.id) }, ifMatch: v });
+      await web.ownerFetch(`/api/owner/payments/${o.paymentId}/confirm`, OWNER_TOKEN, { method: 'POST', body: { overrideReason: 'checked image' }, ifMatch: v });
       expect((await dbOrder(o.id)).status).toBe('PAID');
       return o;
     };
@@ -1044,7 +1024,7 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     // A real delivered order: paid by the owner, dispatched, delivered.
     const o = await orderInPaymentReview('หอยแครง 3 โล');
     let own = await ownerGet(o.id);
-    await web.ownerFetch(`/api/owner/payments/${o.paymentId}/confirm`, OWNER_TOKEN, { method: 'POST', body: { overrideReason: 'checked image', slipChecklist: await goodChecklist(o.id) }, ifMatch: own.version });
+    await web.ownerFetch(`/api/owner/payments/${o.paymentId}/confirm`, OWNER_TOKEN, { method: 'POST', body: { overrideReason: 'checked image' }, ifMatch: own.version });
     own = await ownerGet(o.id);
     await web.ownerFetch(`/api/owner/orders/${o.id}/dispatch`, OWNER_TOKEN, { method: 'POST', body: { trackingUrl: 'https://share.lalamove.com/?TH-REORDER' }, ifMatch: own.version });
     own = await ownerGet(o.id);

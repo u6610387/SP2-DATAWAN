@@ -1,7 +1,7 @@
 /**
  * LINE push slots per order (CLAUDE.md §3.4, D2): exactly PRICE_READY → TOTAL_READY → TRACKING_LINK,
- * at most one push each. Counter / hold / owner notes never push (LIFF realtime + free chat reply).
- * When the day's quota is tight, the price quote yields to total + tracking.
+ * at most one push each, all P1 and sent even while LIFF is open (so they land in chat history).
+ * Counter / hold / owner notes never push (LIFF realtime + free chat reply).
  */
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app';
@@ -79,19 +79,25 @@ describe('push slots: price quote, total, tracking — once each', () => {
     expect(h.line.pushes).toHaveLength(0);
   });
 
-  it('quota tight: the price quote yields (DAILY_RESERVE) while total and tracking still go out', async () => {
+  it('a nearly spent day: all 3 still fire while today has budget, then wait for pull-on-message', async () => {
     const h = makeHarness(); // 2027-01-14 → 18 days left incl. today
-    // 225 of 300 used (below the 80% warning): 285 − 225 = 60 left ÷ 18 days = 3 today = the P1 reserve.
+    // 225 of 300 used (below the 80% warning): 285 − 225 = 60 left ÷ 18 days = 3 pushes today.
     await h.repo.insertQuotaLog({ month: '2027-01-01', limit_count: 300, total_usage: 225, local_count: 225, mode: 'NORMAL' });
     const o = await toPriceAwaiting(h);
     await h.ownerText(`${o.code} 900`);
-    expect(deferred(h).at(-1)).toMatchObject({ why: 'PRICE_READY', reason: 'DAILY_RESERVE' });
     await h.customerPostback(`a=accept&o=${o.id}`);
     await h.ownerText(`${o.code} ship 100`);
     await h.customerImage('img-1', new Uint8Array(200).fill(9));
     await h.ownerText(`${o.code} paid`);
     await h.ownerText(`${o.code} track https://share.lalamove.com/abc`);
-    expect(sentWhys(h)).toEqual(['TOTAL_READY', 'TRACKING_LINK']);
+    expect(sentWhys(h)).toEqual(['PRICE_READY', 'TOTAL_READY', 'TRACKING_LINK']);
+    // Budget for today now used: the next order's price quote waits (DAILY_BUDGET), not a silent drop.
+    await h.customerText('หอยแครง 1 โล');
+    await h.customerPostback(findPostback(h.line.lastReply(), 'new')); // A1 is still out for delivery
+    await h.customerPostback(findPostback(h.line.lastReply(), 'confirm'));
+    await h.customerLocation(13.7, 100.4, 'ร้าน');
+    await h.ownerText(`${h.repo.orders.at(-1)!.code} 300`);
+    expect(deferred(h).at(-1)).toMatchObject({ why: 'PRICE_READY', reason: 'DAILY_BUDGET' });
   });
 
   it('a sent push bumps the order version and broadcasts it (LIFF If-Match stays current)', async () => {
@@ -103,13 +109,12 @@ describe('push slots: price quote, total, tracking — once each', () => {
     expect(h.realtime.sent.at(-1)!.version).toBe(row.version);
   });
 
-  it('LIFF open: total and tracking still push (chat history), the price quote waits (production A19)', async () => {
+  it('LIFF open: all 3 still push, so each lands in the LINE chat history (production A19)', async () => {
     const h = makeHarness();
     const o = await toPriceAwaiting(h);
     const present = () => { h.repo.orders.find((x) => x.id === o.id)!.customer_last_seen_at = h.clock.now().toISOString(); };
     present();
     await h.ownerText(`${o.code} 900`);
-    expect(deferred(h).at(-1)).toMatchObject({ why: 'PRICE_READY', reason: 'PRESENT' });
     await h.customerPostback(`a=accept&o=${o.id}`);
     present();
     await h.ownerText(`${o.code} ship 100`);
@@ -117,7 +122,8 @@ describe('push slots: price quote, total, tracking — once each', () => {
     await h.ownerText(`${o.code} paid`);
     present();
     await h.ownerText(`${o.code} track https://share.lalamove.com/abc`);
-    expect(sentWhys(h)).toEqual(['TOTAL_READY', 'TRACKING_LINK']);
+    expect(sentWhys(h)).toEqual(['PRICE_READY', 'TOTAL_READY', 'TRACKING_LINK']);
+    expect(deferred(h).filter((d) => d.reason === 'PRESENT')).toEqual([]);
     expect(JSON.stringify(h.line.pushes.at(-1)!.messages)).toContain('https://share.lalamove.com/abc');
   });
 });

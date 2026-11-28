@@ -126,7 +126,7 @@ describe('slips', () => {
 });
 
 describe('quota guard', () => {
-  it('no push when the customer is present in LIFF', async () => {
+  it('the price quote still pushes when the customer is present in LIFF (lands in chat history)', async () => {
     const h = makeHarness();
     await h.customerText('ปูม้า 1 โล');
     await h.customerPostback(findPostback(h.line.lastReply(), 'confirm'));
@@ -134,8 +134,9 @@ describe('quota guard', () => {
     const o = h.repo.orders[0]!;
     await h.repo.updateOrder(o.id, o.version, { customer_last_seen_at: h.clock.now().toISOString() });
     await h.ownerText('900');
-    expect(h.line.pushes).toHaveLength(0);
-    expect(h.repo.events.find((e) => e.event === 'PUSH_DEFERRED')?.payload).toMatchObject({ reason: 'PRESENT' });
+    expect(h.line.pushes).toHaveLength(1);
+    expect(h.repo.events.find((e) => e.event === 'PUSH_SENT')?.payload).toMatchObject({ why: 'PRICE_READY', priority: 'P1' });
+    expect(h.repo.events.some((e) => e.event === 'PUSH_DEFERRED')).toBe(false);
   });
 
   it('Quota Saver Mode halts pushes at 95%', async () => {

@@ -129,9 +129,6 @@ export const th = {
     wrongState: (code: string, status: string) => `${code} อยู่สถานะ "${status}" ใช้คำสั่งนี้ไม่ได้`,
     conflict: 'ออเดอร์เพิ่งถูกอัปเดต ลองอีกครั้ง',
     noOpenOrders: 'ไม่มีออเดอร์ค้าง',
-    /** Manual slip mode: the chat command can't carry the amount / receiver / time checklist. */
-    paidNeedsChecklist: (code: string) =>
-      `⚠️ ${code}: ยังไม่มีใครตรวจยอดเงิน ผู้รับ และเวลาในสลิป กรุณายืนยันรับเงินในแดชบอร์ด (หน้าออเดอร์ ${code}) แล้วกรอกยอด/ผู้รับ/เวลาจากสลิป`,
     paidNeedsPass: (code: string, result: string) =>
       `${code} ผลตรวจสลิป = ${result} ถ้ายืนยันจะรับเงิน พิมพ์ "${code} paid! <เหตุผล>"`,
     noSlip: (code: string) => `${code} ยังไม่มีสลิป`,

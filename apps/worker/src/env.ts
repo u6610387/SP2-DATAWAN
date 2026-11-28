@@ -27,8 +27,6 @@ export const ConfigSchema = z.object({
   QUOTA_SAVER_RATIO: num(0.95),
   /** LIFECYCLE_PUSHES (price quote, total, tracking) — at most one each. */
   MAX_PUSH_PER_ORDER: num(3),
-  /** Pushes per day kept for TOTAL_READY / TRACKING_LINK: PRICE_READY needs more than this left today. */
-  PUSH_DAILY_RESERVE_P1: num(3),
   LIFF_PRESENCE_SECONDS: num(60),
   LIFF_ID: z.string().default(''),
   /**
