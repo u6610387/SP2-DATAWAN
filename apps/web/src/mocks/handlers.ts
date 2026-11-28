@@ -187,12 +187,46 @@ export async function mockFetch<T>(path: string, opts: RequestOptions): Promise<
     return { type: 'B2C', b2b: { status: 'PENDING_VERIFICATION', businessName: String(b.businessName), businessType: b.businessType, addressText: String(b.addressText), lat: b.lat ?? null, lng: b.lng ?? null, deliveryWindow: b.deliveryWindow ?? null, taxId: b.taxId ?? null, rejectionReason: null, needsRereview: false, documents: [] } } as T;
   }
 
+  // LIFF order list + reorder (mock: every mock order belongs to the LIFF user).
+  const listMatch = /^\/api\/liff\/orders\?scope=(open|history)$/.exec(path);
+  if (listMatch) {
+    const history = listMatch[1] === 'history';
+    return mockOrders
+      .filter((o) => (o.status === 'DELIVERED' || o.status === 'CANCELLED') === history)
+      .map((o) => ({
+        id: o.id, code: o.code, status: o.status, createdAt: new Date().toISOString(), deliveredAt: o.status === 'DELIVERED' ? new Date().toISOString() : null,
+        itemsPreview: o.items.slice(0, 3).map((i) => ({ name: i.name, qty: i.qty, unit: i.unit })), itemCount: o.items.length,
+        totalSatang: o.totalSatang, reorderable: o.status === 'DELIVERED' && o.items.length > 0,
+      })) as T;
+  }
+  if (path === '/api/liff/reorder') {
+    const src = findOrder(String(body?.sourceOrderId));
+    const copy: OwnerOrderView = {
+      ...src, id: `mock-reorder-${Date.now()}`, code: `R${mockOrders.length + 1}`, status: 'AWAITING_CONFIRMATION', version: 1,
+      productPriceSatang: null, shippingFeeSatang: null, totalSatang: null, priceNote: null, trackingUrl: null, negotiation: [],
+      sourceOrderId: src.id, reuseAddress: null, delivery: { ...src.delivery, hasLocation: false, addressText: null, lat: null, lng: null },
+    };
+    mockOrders.push(copy);
+    return { ...toCustomerView(copy), skippedItems: [], deduped: false } as T;
+  }
+
   const liffOrderMatch = /^\/api\/liff\/orders\/([^/]+)(\/.*)?$/.exec(path);
   if (liffOrderMatch) {
     const o = findOrder(liffOrderMatch[1]!);
     const action = liffOrderMatch[2];
     if (!action) return toCustomerView(o) as unknown as T;
     if (action === '/accept') { o.status = 'AWAITING_SHIPPING_FEE'; return toCustomerView(o) as unknown as T; }
+    if (action === '/confirm') {
+      o.status = 'AWAITING_LOCATION';
+      o.reuseAddress = { id: 'mock-address', addressText: 'ตลาดสดธนบุรี (mock)' };
+      return toCustomerView(o) as unknown as T;
+    }
+    if (action === '/location') {
+      o.status = 'AWAITING_PRICE';
+      o.reuseAddress = null;
+      o.delivery = { ...o.delivery, hasLocation: true, addressText: 'ตลาดสดธนบุรี (mock)' };
+      return toCustomerView(o) as unknown as T;
+    }
     if (action === '/counter') {
       const amountSatang = Number(body?.amountSatang);
       o.status = 'NEGOTIATING';

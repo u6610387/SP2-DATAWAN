@@ -217,6 +217,29 @@ export interface Dictionary {
     trackLink: string;
     deliveredTitle: string;
   };
+  /** LIFF order history + one-tap reorder (/liff/orders). */
+  history: {
+    title: string;
+    link: string;
+    linkHint: string;
+    openTitle: string;
+    pastTitle: string;
+    empty: string;
+    reorder: string;
+    reordering: string;
+    moreItems: (n: number) => string;
+    placedOn: (date: string) => string;
+    deliveredOn: (date: string) => string;
+    nothingToReorder: string;
+    skippedNotice: (names: string) => string;
+    confirmTitle: string;
+    confirmBody: string;
+    confirmButton: string;
+    reuseAddressTitle: string;
+    reuseAddressButton: string;
+    newPinHint: string;
+    backToHistory: string;
+  };
   account: {
     title: string;
     myAccountLink: string;

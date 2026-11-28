@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import useSWR from 'swr';
 import { bahtToSatang, formatTHB, type CustomerOrderView } from '@datawan/shared';
 import { Countdown } from '@/components/Countdown';
@@ -17,6 +17,7 @@ import { checkSlipQrText, decodeQrFromFile } from '@/lib/slipQr';
 import { useLanguage } from '@/lib/i18n/context';
 import type { Dictionary } from '@/lib/i18n/dictionary';
 import { useLiffAuth } from '@/lib/liffAuth';
+import { reorderSkippedKey } from '@/lib/reorder';
 import { useLiffHeartbeat } from '@/lib/useLiffHeartbeat';
 import { useOrderBroadcast } from '@/lib/useOrderBroadcast';
 
@@ -42,6 +43,16 @@ function OrderRoom({ orderId, auth }: { orderId: string; auth: { idToken: string
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Items a reorder left out (set by /liff/orders just before navigating here).
+  const [skipped, setSkipped] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(reorderSkippedKey(orderId));
+      if (raw) setSkipped(JSON.parse(raw) as string[]);
+    } catch {
+      /* sessionStorage unavailable: the notice is optional */
+    }
+  }, [orderId]);
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -108,6 +119,47 @@ function OrderRoom({ orderId, auth }: { orderId: string; auth: { idToken: string
             run(() => liffFetch(`/api/liff/orders/${orderId}/recipient`, auth, { method: 'POST', body: { recipientName, recipientPhone, pdpaConsent: true }, ifMatch: order.version }))
           }
         />
+      )}
+
+      {skipped.length > 0 && order.status === 'AWAITING_CONFIRMATION' && (
+        <p className="rounded-xl bg-[var(--yellow-bg)] p-3 text-sm">{t.history.skippedNotice(skipped.join(', '))}</p>
+      )}
+
+      {order.status === 'AWAITING_CONFIRMATION' && order.items.length > 0 && (
+        <Card>
+          <CardTitle>{t.history.confirmTitle}</CardTitle>
+          <p className="mt-1 text-sm text-[var(--muted)]">{t.history.confirmBody}</p>
+          <Button
+            size="lg"
+            className="mt-3"
+            disabled={busy}
+            onClick={() => run(() => liffFetch(`/api/liff/orders/${orderId}/confirm`, auth, { method: 'POST', ifMatch: order.version }))}
+          >
+            {t.history.confirmButton}
+          </Button>
+        </Card>
+      )}
+
+      {order.status === 'AWAITING_LOCATION' && !order.delivery.hasLocation && (
+        <Card>
+          {order.reuseAddress && (
+            <>
+              <CardTitle>{t.history.reuseAddressTitle}</CardTitle>
+              <p className="mt-1 text-sm">{order.reuseAddress.addressText ?? '📍'}</p>
+              <Button
+                size="lg"
+                className="mt-3"
+                disabled={busy}
+                onClick={() =>
+                  run(() => liffFetch(`/api/liff/orders/${orderId}/location`, auth, { method: 'POST', body: { addressId: order.reuseAddress!.id }, ifMatch: order.version }))
+                }
+              >
+                {t.history.reuseAddressButton}
+              </Button>
+            </>
+          )}
+          <p className={order.reuseAddress ? 'mt-3 text-xs text-[var(--muted)]' : 'text-sm text-[var(--muted)]'}>{t.history.newPinHint}</p>
+        </Card>
       )}
 
       {order.status === 'AWAITING_PRICE' && <Card>{t.liff.awaitingPrice}</Card>}
@@ -192,7 +244,10 @@ function OrderRoom({ orderId, auth }: { orderId: string; auth: { idToken: string
         </Card>
       )}
 
-      <p className="pt-2 text-center text-xs">
+      <p className="flex justify-center gap-4 pt-2 text-center text-xs">
+        <Link href="/liff/orders" className="text-[var(--muted)] underline">
+          {t.history.backToHistory}
+        </Link>
         <Link href="/liff/account" className="text-[var(--muted)] underline">
           {t.account.myAccountLink}
         </Link>

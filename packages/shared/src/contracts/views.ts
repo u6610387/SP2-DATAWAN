@@ -50,6 +50,36 @@ export interface CustomerOrderView {
   };
   realtime: { channel: string };
   ownerDelayed: boolean;
+  /** Set when this order was created by a LIFF reorder. */
+  sourceOrderId?: string | null;
+  /**
+   * The customer's own address the order room offers as "ส่งที่อยู่เดิม" while the order waits
+   * for a location (the reordered order's address). Null otherwise.
+   */
+  reuseAddress?: { id: string; addressText: string | null } | null;
+}
+
+/** Row in the LIFF order list (GET /api/liff/orders). Never contains cost or margin. */
+export interface CustomerOrderSummary {
+  id: string;
+  code: string;
+  status: OrderStatus;
+  createdAt: string;
+  deliveredAt: string | null;
+  /** First 3 items. */
+  itemsPreview: { name: string; qty: number; unit: Unit }[];
+  itemCount: number;
+  totalSatang: number | null;
+  /** DELIVERED with at least one item whose product is still active. */
+  reorderable: boolean;
+}
+
+/** POST /api/liff/reorder response: the new order plus the items that couldn't be copied. */
+export interface ReorderResponse extends CustomerOrderView {
+  /** Names of source items not copied (product no longer sold, or never matched a product). */
+  skippedItems: string[];
+  /** True when an unconfirmed reorder of the same source already existed (double tap). */
+  deduped: boolean;
 }
 
 export type SlipRule = 'AMOUNT' | 'TIME' | 'RECEIVER' | 'REFERENCE' | 'READABLE';
@@ -114,6 +144,7 @@ export type ApiErrorCode =
   | 'DUPLICATE'
   | 'INVALID_FROM_STATE'
   | 'TOO_MANY_DOCUMENTS'
+  | 'NOTHING_TO_REORDER'
   | 'INTERNAL';
 
 export interface ApiError {

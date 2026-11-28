@@ -188,3 +188,22 @@ export const OwnerB2bReasonRequest = z.object({
   expectedUpdatedAt: z.string().min(1),
 });
 export type OwnerB2bReasonRequest = z.infer<typeof OwnerB2bReasonRequest>;
+
+/**
+ * LIFF one-tap reorder: copies a DELIVERED order's items (no AI parse, no prices) into a new
+ * order in AWAITING_CONFIRMATION. The owner still quotes the price (CLAUDE.md §3.1).
+ */
+export const ReorderRequest = z.object({
+  sourceOrderId: z.string().uuid(),
+  requestedDeliveryAt: z.string().datetime({ offset: true }).nullable().optional(),
+});
+export type ReorderRequest = z.infer<typeof ReorderRequest>;
+
+/** LIFF: deliver to one of the customer's own saved addresses (e.g. the reordered order's). */
+export const OrderAddressRequest = z.object({
+  addressId: z.string().uuid(),
+});
+export type OrderAddressRequest = z.infer<typeof OrderAddressRequest>;
+
+export const OrderHistoryScope = z.enum(['history', 'open']);
+export type OrderHistoryScope = z.infer<typeof OrderHistoryScope>;
