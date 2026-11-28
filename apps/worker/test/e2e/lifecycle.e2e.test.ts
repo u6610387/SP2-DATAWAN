@@ -1060,4 +1060,32 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
       ['customer:ADDRESS_REUSED', 'customer:CUSTOMER_CONFIRM', 'customer:LOCATION_SET', 'customer:ORDER_CREATED'],
     );
   }, 60_000);
+  it('owner board list (batch queries on real Postgres) equals the single-order view for every open order', async () => {
+    // At least 6 more open orders (AWAITING_PRICE), and a known cost so cost/suggestion are compared too.
+    await db.query(`insert into price_history (product_id, kind, unit_price_satang, source) select id, 'cost', 15000, 'manual' from products where name_th = 'หอยแครง'`);
+    const draftSql = `select o.id from orders o join users u on u.id = o.user_id
+      where o.status = 'AWAITING_CONFIRMATION' and u.line_user_id = $1 order by o.created_at desc`;
+    for (let i = 0; i < 6; i++) {
+      await customerText(`หอยแครง ${i + 1} โล`);
+      if (!(await db.query(draftSql, [CUSTOMER_LINE])).rows.length) {
+        await webhook(CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'new') } });
+      }
+      await webhook(CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'confirm') } });
+      await webhook(CUSTOMER_LINE, { type: 'message', message: { id: `m${seq + 1}`, type: 'location', latitude: 13.72, longitude: 100.47, address: `ตลาด ${i}` } });
+    }
+    const list = await web.ownerFetch<OwnerOrderView[]>('/api/owner/orders', OWNER_TOKEN);
+    const open = (await db.query<{ n: number }>(`select count(*)::int as n from orders where status not in ('DELIVERED', 'CANCELLED')`)).rows[0]!.n;
+    expect(list.length).toBe(open);
+    expect(list.length).toBeGreaterThanOrEqual(5); // past the old 5-order failure point
+    expect(list.filter((o) => o.status === 'AWAITING_PRICE').length).toBeGreaterThanOrEqual(6);
+    expect(list.some((o) => o.costSatang !== null)).toBe(true);
+    for (const o of list) {
+      const one = await ownerGet(o.id);
+      if (one.latestPayment) {
+        expect(o.latestPayment?.slipImageUrl).toBeNull();
+        one.latestPayment.slipImageUrl = null;
+      }
+      expect(o).toEqual(one);
+    }
+  }, 60_000);
 });

@@ -38,6 +38,7 @@ export const th: Dictionary = {
     loss: 'ขาดทุน',
     needsReview: 'ตรวจสอบ',
     noOpenOrders: 'ไม่มีออเดอร์เปิดอยู่',
+    ordersLoadError: 'โหลดรายการออเดอร์ไม่สำเร็จ รายการด้านล่างอาจไม่ใช่ล่าสุด กำลังลองใหม่อัตโนมัติ…',
   },
   orderDetail: {
     back: 'กลับหน้าแรก',

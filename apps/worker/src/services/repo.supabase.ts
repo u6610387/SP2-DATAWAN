@@ -7,6 +7,13 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { FINAL_STATUSES, type OrderRow, type OrderStatus, type ProductRow } from '@datawan/shared';
 import type { NewOrder, NewOrderItem, Repo } from './repo';
 
+/** Row cap for batch reads; past it the code falls back to exact single lookups. */
+const BATCH_ROWS = 1000;
+/** First row per key of rows already sorted newest first. */
+function firstPer<T>(rows: T[], key: (r: T) => string): T[] {
+  const seen = new Set<string>();
+  return rows.filter((r) => (seen.has(key(r)) ? false : (seen.add(key(r)), true)));
+}
 const OPEN_FILTER = `(${FINAL_STATUSES.map((s) => `"${s}"`).join(',')})`;
 
 /** Untyped client (no generated Database types yet): rows are cast to the shared row types. */
@@ -99,6 +106,73 @@ export class SupabaseRepo implements Repo {
     const base = this.db.from('orders').select('*').eq('user_id', userId);
     const q = scope === 'open' ? base.not('status', 'in', OPEN_FILTER) : base.in('status', [...FINAL_STATUSES]);
     return must(await q.order('created_at', { ascending: false }).limit(limit), 'listUserOrders');
+  }
+  // ---- batch reads (list endpoints): one query each ----
+  async listNegotiationsForOrders(orderIds: string[]) {
+    if (!orderIds.length) return [];
+    return must(await this.db.from('negotiations').select('*').in('order_id', orderIds).order('round'), 'listNegotiationsForOrders');
+  }
+  async latestPaymentsForOrders(orderIds: string[]) {
+    if (!orderIds.length) return [];
+    const rows = must(await this.db.from('payments').select('*').in('order_id', orderIds).order('created_at', { ascending: false }), 'latestPaymentsForOrders') as import('@datawan/shared').PaymentRow[];
+    return firstPer(rows, (r) => r.order_id);
+  }
+  async listPushEventsForOrders(orderIds: string[]) {
+    if (!orderIds.length) return [];
+    return must(
+      await this.db.from('order_events').select('*').in('order_id', orderIds).in('event', ['PUSH_SENT', 'PUSH_DEFERRED']).order('created_at', { ascending: false }),
+      'listPushEventsForOrders',
+    );
+  }
+  async getUsers(ids: string[]) {
+    if (!ids.length) return [];
+    return must(await this.db.from('users').select('*').in('id', ids), 'getUsers');
+  }
+  async getAddresses(ids: string[]) {
+    if (!ids.length) return [];
+    return must(await this.db.from('addresses').select('*').in('id', ids), 'getAddresses');
+  }
+  async getBusinessProfiles(userIds: string[]) {
+    if (!userIds.length) return [];
+    return must(await this.db.from('business_profiles').select('*').in('user_id', userIds), 'getBusinessProfiles');
+  }
+  async latestUnitCosts(productIds: string[], sinceIso?: string) {
+    const ids = [...new Set(productIds)];
+    const out = new Map<string, number>();
+    if (!ids.length) return out;
+    let q = this.db.from('price_history').select('product_id, unit_price_satang, recorded_at').in('product_id', ids).eq('kind', 'cost');
+    if (sinceIso) q = q.gte('recorded_at', sinceIso);
+    const rows = must(await q.order('recorded_at', { ascending: false }).limit(BATCH_ROWS), 'latestUnitCosts') as { product_id: string; unit_price_satang: number }[];
+    for (const r of firstPer(rows, (x) => x.product_id)) out.set(r.product_id, r.unit_price_satang);
+    // Row cap hit: a product's latest row may be past it. Look those up one by one (exact, rare).
+    if (rows.length === BATCH_ROWS) {
+      for (const id of ids.filter((x) => !out.has(x))) {
+        const v = await this.latestUnitCost(id, sinceIso);
+        if (v !== null) out.set(id, v);
+      }
+    }
+    return out;
+  }
+  async lastSellUnitPrices(userIds: string[], productIds: string[], sinceIso: string) {
+    const users = [...new Set(userIds)];
+    const products = [...new Set(productIds)];
+    const out = new Map<string, number>();
+    if (!users.length || !products.length) return out;
+    const rows = must(
+      await this.db.from('price_history').select('user_id, product_id, unit_price_satang, recorded_at')
+        .in('user_id', users).in('product_id', products).eq('kind', 'sell').gte('recorded_at', sinceIso)
+        .order('recorded_at', { ascending: false }).limit(BATCH_ROWS),
+      'lastSellUnitPrices',
+    ) as { user_id: string; product_id: string; unit_price_satang: number }[];
+    for (const r of firstPer(rows, (x) => `${x.user_id}:${x.product_id}`)) out.set(`${r.user_id}:${r.product_id}`, r.unit_price_satang);
+    if (rows.length === BATCH_ROWS) {
+      for (const u of users) for (const p of products) {
+        if (out.has(`${u}:${p}`)) continue;
+        const v = await this.lastSellUnitPrice(u, p, sinceIso);
+        if (v !== null) out.set(`${u}:${p}`, v);
+      }
+    }
+    return out;
   }
   async lastDeliveredOrder(userId: string) {
     return must(

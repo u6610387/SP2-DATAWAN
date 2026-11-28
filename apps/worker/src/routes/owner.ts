@@ -37,6 +37,7 @@ import { getQuotaStatus } from '../line/quota';
 import * as actions from '../services/orderActions';
 import { createCategory, createProduct, updateProduct } from '../services/catalog';
 import { suggestPrice } from '../services/pricing';
+import { buildOwnerListViews, trackingPushFrom } from '../services/ownerList';
 import { ownerCheckSlipQr } from '../services/slipQrCheck';
 import { splitPath } from '../services/storage';
 import { toOwnerB2bDetailView, toOwnerB2bSummaryView, toOwnerOrderView } from '../services/views';
@@ -80,12 +81,7 @@ async function buildOwnerView(deps: Deps, order: OrderRow): Promise<OwnerOrderVi
   const address = order.address_id ? await deps.repo.getAddress(order.address_id) : null;
   const slipImageUrl = payment?.slip_path ? await (({ bucket, key }) => deps.storage.getSignedUrl(bucket, key, 600))(splitPath(payment.slip_path)) : null;
   const suggestion = await suggestPrice(deps, order, items);
-  const trackingEv = order.tracking_url
-    ? (await deps.repo.listPushEvents(order.id)).find((e) => (e.payload as { why?: string } | null)?.why === 'TRACKING_LINK')
-    : undefined;
-  const trackingPush = trackingEv
-    ? { sent: trackingEv.event === 'PUSH_SENT', reason: trackingEv.event === 'PUSH_SENT' ? null : ((trackingEv.payload as { reason?: string }).reason ?? null) }
-    : null;
+  const trackingPush = order.tracking_url ? trackingPushFrom(order, await deps.repo.listPushEvents(order.id)) : null;
   return toOwnerOrderView({
     order,
     items,
@@ -147,9 +143,10 @@ export function createOwnerRoutes(deps: Deps) {
     for (const o of delivered) {
       productRevenueSatang += o.product_price_satang ?? 0;
       shippingCollectedSatang += o.shipping_fee_satang ?? 0;
-      const items = await deps.repo.getItems(o.id);
-      costSatang += items.reduce((a, i) => a + (i.cost_satang ?? 0), 0);
     }
+    // One query for every delivered order's items (was one per order: subrequest limit).
+    const items = await deps.repo.getItemsForOrders(delivered.map((o) => o.id));
+    costSatang = items.reduce((a, i) => a + (i.cost_satang ?? 0), 0);
     const openByStatus = {} as Record<OrderStatus, number>;
     for (const o of open) openByStatus[o.status] = (openByStatus[o.status] ?? 0) + 1;
     return c.json({
@@ -212,7 +209,8 @@ export function createOwnerRoutes(deps: Deps) {
   app.get('/orders', async (c) => {
     const status = c.req.query('status') as OrderStatus | undefined;
     const orders = await deps.repo.listOpenOrders(status ? { statuses: [status] } : undefined);
-    return c.json(await Promise.all(orders.map((o) => buildOwnerView(deps, o))));
+    // Batch-built: a per-order view here ran past the 50-subrequest limit at 5 open orders.
+    return c.json(await buildOwnerListViews(deps, orders));
   });
 
   app.get('/orders/:id', async (c) => {
