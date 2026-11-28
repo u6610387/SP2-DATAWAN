@@ -162,8 +162,9 @@ export function createOwnerRoutes(deps: Deps) {
     const filter = c.req.query('filter') ?? 'pending';
     if (filter !== 'pending' && filter !== 'b2b' && filter !== 'all') return apiError(c, 'VALIDATION_FAILED', 'filter must be pending, b2b or all', 400);
     const profiles = await deps.repo.listBusinessProfiles(filter);
-    const users = await Promise.all(profiles.map((p) => deps.repo.getUser(p.user_id)));
-    return c.json(profiles.map((p, i) => toOwnerB2bSummaryView(p, users[i] ?? null)));
+    // One query for every profile's user (was one per profile: Workers Free 50-subrequest limit).
+    const usersById = new Map((await deps.repo.getUsers(profiles.map((p) => p.user_id))).map((u) => [u.id, u]));
+    return c.json(profiles.map((p) => toOwnerB2bSummaryView(p, usersById.get(p.user_id) ?? null)));
   });
 
   app.get('/customers/:userId', async (c) => {
