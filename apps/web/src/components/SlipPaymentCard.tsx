@@ -5,7 +5,7 @@
  * owner decides from the picture, and in GEMINI_SLIP_MODE=manual every slip is WARN.
  */
 import { useEffect, useRef, useState } from 'react';
-import { bahtToSatang, ownerSlipChecks, type CheckLevel, type OwnerOrderView, type OwnerSlipChecklist, type SlipCheck } from '@datawan/shared';
+import type { OwnerOrderView, SlipCheck } from '@datawan/shared';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardTitle } from '@/components/ui/card';
@@ -75,12 +75,8 @@ export function SlipImage({ paymentId, url, t }: { paymentId: string; url: strin
   );
 }
 
-const OWNER_RULES = new Set(['AMOUNT', 'RECEIVER', 'TIME']);
-const RANK: Record<CheckLevel, number> = { PASS: 0, WARN: 1, FAIL: 2 };
-const worst = (checks: SlipCheck[]): CheckLevel => checks.reduce<CheckLevel>((a, c) => (RANK[c.result] > RANK[a] ? c.result : a), 'PASS');
-
-/** datetime-local value ("2026-11-28T23:41") as Bangkok time → ISO with offset. */
-const bangkokIso = (local: string) => (local ? `${local}:00+07:00` : '');
+/** What the bank Mini-QR can't prove: shown so a green QR row never reads as "slip verified". */
+const NOT_FROM_QR = ['AMOUNT', 'RECEIVER', 'TIME'] as const;
 
 /** One check row: label + what it really verified (REFERENCE · PASS never reads as "slip OK"). */
 function CheckRow({ c, t }: { c: SlipCheck | { rule: SlipCheck['rule']; result: null; detail: string }; t: Dictionary }) {
@@ -107,7 +103,7 @@ export function SlipPaymentCard({
   order: OwnerOrderView;
   t: Dictionary;
   busy: boolean;
-  onConfirm: (overrideReason: string | null, slipChecklist: OwnerSlipChecklist | null) => void;
+  onConfirm: (overrideReason: string | null) => void;
   onReject: (reason: string) => void;
   /** Sends the decoded Mini-QR text (or null when none was found) to POST /api/owner/payments/:id/qr. */
   onQrDecoded?: (payload: string | null) => Promise<void>;
@@ -115,33 +111,17 @@ export function SlipPaymentCard({
   const payment = order.latestPayment!;
   const qr = useSlipQrCheck(order, useStableSignedUrl(payment.id, payment.slipImageUrl), onQrDecoded);
   const [reason, setReason] = useState('');
-  const [amount, setAmount] = useState('');
-  const [receiverIsShop, setReceiverIsShop] = useState(false);
-  const [slipTime, setSlipTime] = useState('');
-
-  // Nothing read the amount (manual slip mode): the owner's checklist decides AMOUNT / RECEIVER / TIME.
-  const needsChecklist = order.status === 'PAYMENT_REVIEW' && !payment.checks.some((c) => c.rule === 'AMOUNT');
-  const amountNum = Number(amount.replace(/,/g, ''));
-  const checklist: OwnerSlipChecklist | null =
-    needsChecklist && amount.trim() !== '' && Number.isFinite(amountNum) && amountNum >= 0 && slipTime
-      ? { amountSatang: bahtToSatang(amountNum), receiverIsShop, slipTime: bangkokIso(slipTime) }
-      : null;
-  // Same rules as the worker (packages/shared/src/slipChecklist.ts), previewed live.
-  const preview = checklist ? ownerSlipChecks(checklist, { totalSatang: order.totalSatang, orderCreatedAt: order.createdAt, now: new Date() }) : null;
-  const shown: SlipCheck[] = preview
-    ? [...payment.checks.filter((c) => !OWNER_RULES.has(c.rule)).map((c) => (c.rule === 'READABLE' ? { ...c, result: 'PASS' as const, detail: '' } : c)), ...preview]
-    : payment.checks;
-  const pending = needsChecklist && !preview ? (['AMOUNT', 'RECEIVER', 'TIME'] as const) : [];
-  const result: CheckLevel | 'PENDING' = preview ? worst(shown) : payment.result;
-  const fails = shown.filter((c) => c.result === 'FAIL');
-  const needsOverride = result !== 'PASS';
-  const canConfirm = order.status === 'PAYMENT_REVIEW' && (!needsChecklist || checklist !== null) && (!needsOverride || reason.trim() !== '');
+  // The owner looks at the slip and confirms. Only a FAIL (duplicate / tampered QR, AI-read mismatch) needs a reason.
+  const fails = payment.checks.filter((c) => c.result === 'FAIL');
+  const needsOverride = payment.result === 'FAIL' || fails.length > 0;
+  const notChecked = NOT_FROM_QR.filter((rule) => !payment.checks.some((c) => c.rule === rule));
+  const reviewing = order.status === 'PAYMENT_REVIEW';
 
   return (
     <Card>
       <div className="flex items-center justify-between">
         <CardTitle>{t.orderDetail.paymentTitle}</CardTitle>
-        <Badge className={RESULT_COLOR[result]}>{result}</Badge>
+        <Badge className={RESULT_COLOR[payment.result]}>{payment.result}</Badge>
       </div>
       <SlipImage paymentId={payment.id} url={payment.slipImageUrl} t={t} />
       {fails.length > 0 && (
@@ -157,10 +137,10 @@ export function SlipPaymentCard({
         </div>
       )}
       <ul className="mt-2 space-y-1 text-xs text-[var(--muted)]">
-        {shown.map((c, i) => (
+        {payment.checks.map((c, i) => (
           <CheckRow key={i} c={c} t={t} />
         ))}
-        {pending.map((rule) => (
+        {notChecked.map((rule) => (
           <CheckRow key={rule} c={{ rule, result: null, detail: '' }} t={t} />
         ))}
       </ul>
@@ -173,37 +153,17 @@ export function SlipPaymentCard({
       )}
       {payment.extracted?.amount != null && <p className="mt-2 text-sm">{t.orderDetail.slipAmount(`฿${payment.extracted.amount}`)}</p>}
 
-      {needsChecklist && (
-        <fieldset className="mt-3 space-y-2 rounded-xl border border-[var(--border)] p-3">
-          <legend className="px-1 text-sm font-medium">{t.orderDetail.slipChecklistTitle}</legend>
-          <p className="text-xs text-[var(--muted)]">{t.orderDetail.slipChecklistHint}</p>
-          <label className="block text-xs">
-            {t.orderDetail.slipChecklistAmount}
-            <Input className="mt-1" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={receiverIsShop} onChange={(e) => setReceiverIsShop(e.target.checked)} />
-            {t.orderDetail.slipChecklistReceiver}
-          </label>
-          <label className="block text-xs">
-            {t.orderDetail.slipChecklistTime}
-            <Input className="mt-1" type="datetime-local" value={slipTime} onChange={(e) => setSlipTime(e.target.value)} />
-          </label>
-          {!checklist && <p className="text-xs text-[var(--yellow)]">{t.orderDetail.slipChecklistIncomplete}</p>}
-        </fieldset>
-      )}
-
-      {needsOverride && (
+      {reviewing && (
         <>
           <Input className="mt-3" placeholder={t.orderDetail.overrideReasonPlaceholder} value={reason} onChange={(e) => setReason(e.target.value)} />
-          {!reason.trim() && <p className="mt-1 text-xs text-[var(--red)]">{t.orderDetail.slipOverrideRequired}</p>}
+          {!reason.trim() && <p className="mt-1 text-xs text-[var(--muted)]">{needsOverride ? t.orderDetail.slipOverrideRequired : t.orderDetail.rejectNeedsReason}</p>}
         </>
       )}
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <Button disabled={busy || !canConfirm} onClick={() => onConfirm(needsOverride ? reason : null, checklist)}>
+        <Button disabled={busy || !reviewing || (needsOverride && !reason.trim())} onClick={() => onConfirm(needsOverride ? reason.trim() : null)}>
           {t.orderDetail.confirmPayment}
         </Button>
-        <Button variant="danger" disabled={busy || order.status !== 'PAYMENT_REVIEW'} onClick={() => onReject(reason || t.orderDetail.rejectReasonFallback)}>
+        <Button variant="danger" disabled={busy || !reviewing || !reason.trim()} onClick={() => onReject(reason.trim())}>
           {t.orderDetail.rejectSlip}
         </Button>
       </div>

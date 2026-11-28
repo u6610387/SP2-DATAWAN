@@ -105,17 +105,12 @@ export interface Dictionary {
     /** REFERENCE · PASS: the QR proves the reference only. */
     slipReferencePass: string;
     slipNotChecked: string;
-    slipChecklistTitle: string;
-    slipChecklistHint: string;
-    slipChecklistAmount: string;
-    slipChecklistReceiver: string;
-    slipChecklistTime: string;
-    slipChecklistIncomplete: string;
     slipMismatchBanner: string;
     slipOverrideRequired: string;
+    /** Reject: a reason is always required (audit trail). */
+    rejectNeedsReason: string;
     confirmPayment: string;
     rejectSlip: string;
-    rejectReasonFallback: string;
     dispatchTitle: string;
     trackingPlaceholder: string;
     dispatchSubmit: string;

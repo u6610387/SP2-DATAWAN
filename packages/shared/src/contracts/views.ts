@@ -149,7 +149,6 @@ export type ApiErrorCode =
   | 'INVALID_FROM_STATE'
   | 'TOO_MANY_DOCUMENTS'
   | 'NOTHING_TO_REORDER'
-  | 'SLIP_CHECKLIST_REQUIRED'
   | 'INTERNAL';
 
 export interface ApiError {

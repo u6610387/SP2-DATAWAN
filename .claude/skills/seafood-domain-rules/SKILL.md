@@ -40,8 +40,8 @@ Reject or redesign anything that needs a paid plan after handover:
 - Only `sendPushGuarded()` may call the push API. Grep check: `pushMessage(` must appear only in `apps/worker/src/line/quota.ts`.
 - Modes: `< 80%` NORMAL · `≥ 80%` WARNING (P1 only, yellow banner) · `≥ 95%` QUOTA_SAVER (no push until 00:00 Asia/Bangkok on the 1st).
 - `used = max(LINE totalUsage, local_count)`.
-- Skip push if customer is present in LIFF (`customer_last_seen_at` within `LIFF_PRESENCE_SECONDS`), if `push_count ≥ MAX_PUSH_PER_ORDER`, or if today's pacing budget is spent.
-- Only 3 push reasons exist (`LIFECYCLE_PUSHES`: `PRICE_READY` → `TOTAL_READY` → `TRACKING_LINK`), at most one push each per order. Counter, hold and owner notes never push. The price quote is P2: it yields to total + tracking when quota is tight (`PUSH_DAILY_RESERVE_P1`).
+- Skip push if `push_count ≥ MAX_PUSH_PER_ORDER`, if the push for that step was already sent, or if today's pacing budget is spent. The presence rule (`customer_last_seen_at` within `LIFF_PRESENCE_SECONDS`) still exists in the guard, but all 3 lifecycle pushes are exempt from it (`PUSH_EVEN_IF_PRESENT`).
+- Only 3 push reasons exist (`LIFECYCLE_PUSHES`: `PRICE_READY` → `TOTAL_READY` → `TRACKING_LINK`), at most one push each per order. Counter, hold and owner notes never push. All three are P1 and are sent even while LIFF is open (`PUSH_EVEN_IF_PRESENT`), so they land in the chat history.
 - Never push for: 15-min reassurance, expiry notices, generic status, marketing. Use LIFF + pull-on-message replies.
 - Owner alerts → Web Push, never LINE push.
 
