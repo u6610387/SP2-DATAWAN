@@ -104,6 +104,12 @@ export default function DashboardHome() {
         )}
       </Card>
 
+      {orders.error && (
+        <p role="alert" className="rounded-xl bg-[var(--red-bg)] p-3 text-sm text-[var(--red)]">
+          {t.dashboard.ordersLoadError}
+        </p>
+      )}
+
       <div className="space-y-3">
         {BOARD_ORDER.filter((s) => grouped.has(s)).map((status) => (
           <Card key={status}>

@@ -38,6 +38,7 @@ export const en: Dictionary = {
     loss: 'Loss',
     needsReview: 'Needs review',
     noOpenOrders: 'No open orders',
+    ordersLoadError: 'Couldn\'t load the order list. The orders below may be out of date; retrying automatically…',
   },
   orderDetail: {
     back: 'Back to home',

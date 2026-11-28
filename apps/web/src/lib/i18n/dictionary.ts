@@ -46,6 +46,8 @@ export interface Dictionary {
     loss: string;
     needsReview: string;
     noOpenOrders: string;
+    /** The order list failed to load: the board may be missing new orders. */
+    ordersLoadError: string;
   };
   orderDetail: {
     back: string;

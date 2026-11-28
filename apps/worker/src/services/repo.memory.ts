@@ -169,6 +169,41 @@ export class MemoryRepo implements Repo {
       .slice(0, limit)
       .map((o) => ({ ...o }));
   }
+  // Batch reads: same semantics as the single-row methods they loop over.
+  async listNegotiationsForOrders(orderIds: string[]) {
+    return (await Promise.all(orderIds.map((id) => this.listNegotiations(id)))).flat();
+  }
+  async latestPaymentsForOrders(orderIds: string[]) {
+    return (await Promise.all(orderIds.map((id) => this.latestPayment(id)))).filter((p): p is import('@datawan/shared').PaymentRow => p !== null);
+  }
+  async listPushEventsForOrders(orderIds: string[]) {
+    return (await Promise.all(orderIds.map((id) => this.listPushEvents(id)))).flat();
+  }
+  async getUsers(ids: string[]) {
+    return this.users.filter((u) => ids.includes(u.id)).map((u) => ({ ...u }));
+  }
+  async getAddresses(ids: string[]) {
+    return this.addresses.filter((a) => ids.includes(a.id)).map((a) => ({ ...a }));
+  }
+  async getBusinessProfiles(userIds: string[]) {
+    return this.businessProfiles.filter((p) => userIds.includes(p.user_id)).map((p) => ({ ...p }));
+  }
+  async latestUnitCosts(productIds: string[], sinceIso?: string) {
+    const out = new Map<string, number>();
+    for (const id of new Set(productIds)) {
+      const v = await this.latestUnitCost(id, sinceIso);
+      if (v !== null) out.set(id, v);
+    }
+    return out;
+  }
+  async lastSellUnitPrices(userIds: string[], productIds: string[], sinceIso: string) {
+    const out = new Map<string, number>();
+    for (const u of new Set(userIds)) for (const p of new Set(productIds)) {
+      const v = await this.lastSellUnitPrice(u, p, sinceIso);
+      if (v !== null) out.set(`${u}:${p}`, v);
+    }
+    return out;
+  }
   async lastDeliveredOrder(userId: string) {
     const o = this.orders
       .filter((x) => x.user_id === userId && x.status === 'DELIVERED')

@@ -124,7 +124,7 @@ export interface PaymentCheckView {
 | Method | Path | Body | Returns |
 |---|---|---|---|
 | GET | `/api/owner/summary/today` | – | `{ ordersDelivered, productRevenueSatang, shippingCollectedSatang, grossMarginSatang, openByStatus: Record<OrderStatus, number> }` |
-| GET | `/api/owner/orders?status=...` | – | `OwnerOrderView[]` |
+| GET | `/api/owner/orders?status=...` | – | `OwnerOrderView[]`: every open order. Built from a fixed number of batch queries (~11, whatever the order count; Workers Free allows 50 subrequests per request). Same values as `/orders/:id`, except `latestPayment.slipImageUrl` is always `null` here: the slip is signed on the detail page |
 | GET | `/api/owner/orders/:id` | – | `OwnerOrderView` |
 | POST | `/api/owner/orders/:id/price` | `{ amountSatang, note? }` | `OwnerOrderView` |
 | POST | `/api/owner/orders/:id/negotiation` | `{ action: 'accept' \| 'counter' \| 'hold', amountSatang? }` | `OwnerOrderView` |

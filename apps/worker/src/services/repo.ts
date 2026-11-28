@@ -88,6 +88,21 @@ export interface Repo {
   listOpenOrders(filter?: { userId?: string; statuses?: OrderStatus[] }): Promise<OrderRow[]>;
   /** One customer's orders, newest first: 'history' = DELIVERED/CANCELLED, 'open' = the rest (LIFF order list). */
   listUserOrders(userId: string, scope: 'history' | 'open', limit: number): Promise<OrderRow[]>;
+  /**
+   * Batch reads for list endpoints (GET /api/owner/orders): one query each, whatever the number
+   * of orders, so a request stays under the Workers Free limit of 50 subrequests.
+   */
+  listNegotiationsForOrders(orderIds: string[]): Promise<NegotiationRow[]>;
+  /** The latest payment of each order that has one. */
+  latestPaymentsForOrders(orderIds: string[]): Promise<PaymentRow[]>;
+  listPushEventsForOrders(orderIds: string[]): Promise<OrderEventRow[]>;
+  getUsers(ids: string[]): Promise<UserRow[]>;
+  getAddresses(ids: string[]): Promise<AddressRow[]>;
+  getBusinessProfiles(userIds: string[]): Promise<BusinessProfileRow[]>;
+  /** Latest cost per unit for each product (kind='cost'), optionally only since a date. Products with none are absent. */
+  latestUnitCosts(productIds: string[], sinceIso?: string): Promise<Map<string, number>>;
+  /** Latest sell price per unit since a date, keyed `${userId}:${productId}` (B2B anchor). */
+  lastSellUnitPrices(userIds: string[], productIds: string[], sinceIso: string): Promise<Map<string, number>>;
   /** Most recent DELIVERED order (B2B reorder). */
   lastDeliveredOrder(userId: string): Promise<OrderRow | null>;
   /** DELIVERED orders with delivered_at >= sinceIso (Today's Sales Summary). */

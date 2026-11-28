@@ -24,26 +24,56 @@ export interface PriceSuggestion {
   b2bAnchorSatang: number | null;
 }
 
-export async function suggestPrice(deps: Deps, order: Pick<OrderRow, 'user_id'>, items: OrderItemRow[]): Promise<PriceSuggestion> {
-  const costs = await costItems(deps, items);
-  const known = costs.every((c) => c.cost_satang !== null) && costs.length > 0;
-  const cost = known ? costs.reduce((a, c) => a + (c.cost_satang ?? 0), 0) : null;
-  const user = await deps.repo.getUser(order.user_id);
+/** Data a price suggestion needs, already fetched (one order, or a whole list in batch). */
+export interface PriceInputs {
+  /** Cost per unit (satang): latest in the last 3 days, else last known; null = unknown. */
+  unitCost: (productId: string) => number | null;
+  /** The customer's latest sell price per unit in the last 30 days; only asked for a VERIFIED B2B customer. */
+  sellUnitPrice: (productId: string) => number | null;
+  /** True only when the customer's business profile is VERIFIED (and user_type is B2B). */
+  verifiedB2b: boolean;
+}
+
+/** Pure suggestion math (PROJECT_SPEC §4.1–4.2): same result for the single-order and the list path. */
+export function suggestFrom(items: OrderItemRow[], inputs: PriceInputs, markup: number): PriceSuggestion {
+  const costs = items.map((it) => {
+    const unit = it.product_id ? inputs.unitCost(it.product_id) : null;
+    return unit === null ? null : lineAmount(unit, it.actual_qty ?? it.qty);
+  });
+  const cost = costs.length > 0 && costs.every((c) => c !== null) ? costs.reduce<number>((a, c) => a + (c ?? 0), 0) : null;
   let anchor: number | null = null;
-  // Both checks: a stale user_type alone must never leak the anchor (owner-verified status is the truth).
-  const profile = user?.user_type === 'B2B' ? await deps.repo.getBusinessProfile(user.id) : null;
-  if (user && profile?.status === 'VERIFIED') {
-    const since = new Date(deps.now().getTime() - 30 * DAY).toISOString();
+  if (inputs.verifiedB2b) {
     let sum = 0;
     let all = items.length > 0;
     for (const it of items) {
-      const p = it.product_id ? await deps.repo.lastSellUnitPrice(user.id, it.product_id, since) : null;
+      const p = it.product_id ? inputs.sellUnitPrice(it.product_id) : null;
       if (p === null) all = false;
       else sum += lineAmount(p, it.qty);
     }
     anchor = all ? sum : null;
   }
-  return { costSatang: cost, suggestedSatang: cost === null ? null : suggestedPrice(cost, deps.cfg.DEFAULT_MARKUP), b2bAnchorSatang: anchor };
+  return { costSatang: cost, suggestedSatang: cost === null ? null : suggestedPrice(cost, markup), b2bAnchorSatang: anchor };
+}
+
+export const COST_RECENT_DAYS = 3;
+export const B2B_ANCHOR_DAYS = 30;
+export const sinceDays = (deps: Pick<Deps, 'now'>, days: number) => new Date(deps.now().getTime() - days * DAY).toISOString();
+
+export async function suggestPrice(deps: Deps, order: Pick<OrderRow, 'user_id'>, items: OrderItemRow[]): Promise<PriceSuggestion> {
+  const productIds = [...new Set(items.map((i) => i.product_id).filter((x): x is string => !!x))];
+  const recent = sinceDays(deps, COST_RECENT_DAYS);
+  const unitCosts = new Map<string, number | null>();
+  for (const id of productIds) unitCosts.set(id, (await deps.repo.latestUnitCost(id, recent)) ?? (await deps.repo.latestUnitCost(id)));
+  const user = await deps.repo.getUser(order.user_id);
+  // Both checks: a stale user_type alone must never leak the anchor (owner-verified status is the truth).
+  const profile = user?.user_type === 'B2B' ? await deps.repo.getBusinessProfile(user.id) : null;
+  const verifiedB2b = Boolean(user && profile?.status === 'VERIFIED');
+  const sell = new Map<string, number | null>();
+  if (verifiedB2b) {
+    const since = sinceDays(deps, B2B_ANCHOR_DAYS);
+    for (const id of productIds) sell.set(id, await deps.repo.lastSellUnitPrice(user!.id, id, since));
+  }
+  return suggestFrom(items, { unitCost: (id) => unitCosts.get(id) ?? null, sellUnitPrice: (id) => sell.get(id) ?? null, verifiedB2b }, deps.cfg.DEFAULT_MARKUP);
 }
 
 export function marginFor(offerSatang: number, items: Pick<OrderItemRow, 'cost_satang'>[]): Margin {
