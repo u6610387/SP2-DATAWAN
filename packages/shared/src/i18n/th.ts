@@ -45,6 +45,8 @@ export const th = {
     ].join('\n'),
   },
   welcome: 'สวัสดีค่ะ ดาทะวันซีฟู้ดยินดีต้อนรับ 🦐 พิมพ์สั่งของได้เลย เช่น "กุ้งแม่น้ำ 2 โล ส่งพรุ่งนี้เช้า"',
+  /** orders.raw_order_text of a LIFF one-tap reorder (shown to the owner; no customer text). */
+  reorderRawText: (sourceCode: string) => `[สั่งซ้ำจาก LIFF] เหมือนออเดอร์ ${sourceCode}`,
   orderReceivedChecking: 'รับออเดอร์แล้วค่ะ ร้านกำลังตรวจสอบรายการให้นะคะ',
   confirmTitle: (code: string) => `สรุปออเดอร์ ${code}`,
   confirmButton: 'ยืนยัน',

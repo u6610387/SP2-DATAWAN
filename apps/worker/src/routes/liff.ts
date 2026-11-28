@@ -6,7 +6,7 @@
 import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
 import {
-  RecipientContactRequest, CounterOfferRequest, B2bApplyRequest, B2bDocUploadUrlRequest, type CustomerAccountView, SlipSubmitRequest, SlipUploadUrlRequest, type CustomerOrderView, type OrderRow, type UserRow } from '@datawan/shared';
+  RecipientContactRequest, CounterOfferRequest, ReorderRequest, OrderAddressRequest, OrderHistoryScope, type ReorderResponse, B2bApplyRequest, B2bDocUploadUrlRequest, type CustomerAccountView, SlipSubmitRequest, SlipUploadUrlRequest, type CustomerOrderView, type OrderRow, type UserRow } from '@datawan/shared';
 import type { Deps } from '../deps';
 import type { Bindings } from '../env';
 import * as actions from '../services/orderActions';
@@ -15,7 +15,8 @@ import { parseSlipQr } from '../services/slipQr';
 import { PAYABLE } from '../handlers/customer';
 import { splitPath } from '../services/storage';
 import { applyB2b } from '../services/b2b';
-import { toCustomerAccountView, toCustomerOrderView } from '../services/views';
+import { toCustomerAccountView, toCustomerOrderSummary, toCustomerOrderView } from '../services/views';
+import { confirmFromLiff, reorder, reuseAddressFor, setOrderAddress } from '../services/reorder';
 import { apiError, checkIfMatch, conflictError, deliveryIncompleteError } from './respond';
 
 type Env = { Bindings: Bindings; Variables: { user: UserRow } };
@@ -57,8 +58,11 @@ async function buildCustomerView(deps: Deps, order: OrderRow): Promise<CustomerO
     deps.repo.listActiveProducts(),
     deps.repo.listNegotiations(order.id),
   ]);
-  const address = order.address_id ? await deps.repo.getAddress(order.address_id) : null;
-  return toCustomerOrderView({ order, items, products, negotiations, address, promptpayId: deps.cfg.PROMPTPAY_ID });
+  const [address, reuseAddress] = await Promise.all([
+    order.address_id ? deps.repo.getAddress(order.address_id) : Promise.resolve(null),
+    reuseAddressFor(deps, order),
+  ]);
+  return toCustomerOrderView({ order, items, products, negotiations, address, reuseAddress, promptpayId: deps.cfg.PROMPTPAY_ID });
 }
 
 async function buildAccountView(deps: Deps, user: UserRow): Promise<CustomerAccountView> {
@@ -77,6 +81,57 @@ async function readJson(c: Context): Promise<unknown> {
 export function createLiffRoutes(deps: Deps) {
   const app = new Hono<Env>();
   app.use('*', requireLiffUser(deps));
+
+  // Order list for /liff/orders: own orders only (user_id from the verified LIFF token).
+  app.get('/orders', async (c) => {
+    const scope = OrderHistoryScope.safeParse(c.req.query('scope') ?? 'history');
+    if (!scope.success) return apiError(c, 'VALIDATION_FAILED', 'scope must be history or open', 400);
+    const orders = await deps.repo.listUserOrders(c.get('user').id, scope.data, 20);
+    const [items, products] = await Promise.all([deps.repo.getItemsForOrders(orders.map((o) => o.id)), deps.repo.listActiveProducts()]);
+    return c.json(orders.map((o) => toCustomerOrderSummary(o, items.filter((i) => i.order_id === o.id), products)));
+  });
+
+  // One-tap reorder: copy a delivered order's items into a new draft (no AI, no prices).
+  app.post('/reorder', async (c) => {
+    const parsed = ReorderRequest.safeParse(await readJson(c));
+    if (!parsed.success) return apiError(c, 'VALIDATION_FAILED', parsed.error.message, 400);
+    const r = await reorder(deps, c.get('user'), parsed.data.sourceOrderId, parsed.data.requestedDeliveryAt ?? null);
+    if (!r.ok) {
+      if (r.reason === 'NOT_FOUND') return apiError(c, 'NOT_FOUND', 'order not found', 404);
+      if (r.reason === 'NOTHING_TO_REORDER') return apiError(c, 'NOTHING_TO_REORDER', 'none of these items are sold any more', 409);
+      return apiError(c, 'INVALID_FROM_STATE', 'only delivered orders can be reordered', 409);
+    }
+    const body: ReorderResponse = { ...(await buildCustomerView(deps, r.order)), skippedItems: r.skipped, deduped: r.deduped };
+    return c.json(body, r.deduped ? 200 : 201);
+  });
+
+  app.post('/orders/:id/confirm', async (c) => {
+    const order = await getOwnOrder(c, deps);
+    if (order instanceof Response) return order;
+    const conflict = checkIfMatch(c, order);
+    if (conflict) return conflict;
+    const r = await confirmFromLiff(deps, c.get('user'), order);
+    if (!r.ok) {
+      if (r.reason === 'NO_ITEMS') return apiError(c, 'VALIDATION_FAILED', 'the order has no items or still has open questions', 422);
+      return conflictError(c, r.reason, r.order);
+    }
+    return c.json(await buildCustomerView(deps, r.order));
+  });
+
+  app.post('/orders/:id/location', async (c) => {
+    const order = await getOwnOrder(c, deps);
+    if (order instanceof Response) return order;
+    const conflict = checkIfMatch(c, order);
+    if (conflict) return conflict;
+    const parsed = OrderAddressRequest.safeParse(await readJson(c));
+    if (!parsed.success) return apiError(c, 'VALIDATION_FAILED', parsed.error.message, 400);
+    const r = await setOrderAddress(deps, c.get('user'), order, parsed.data.addressId);
+    if (!r.ok) {
+      if (r.reason === 'NOT_FOUND') return apiError(c, 'NOT_FOUND', 'address not found', 404);
+      return conflictError(c, r.reason, r.order);
+    }
+    return c.json(await buildCustomerView(deps, r.order));
+  });
 
   app.get('/orders/:id', async (c) => {
     const order = await getOwnOrder(c, deps);

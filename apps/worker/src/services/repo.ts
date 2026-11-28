@@ -86,6 +86,8 @@ export interface Repo {
   getOpenOrderByCode(code: string): Promise<OrderRow | null>;
   /** Non-final orders, newest first. */
   listOpenOrders(filter?: { userId?: string; statuses?: OrderStatus[] }): Promise<OrderRow[]>;
+  /** One customer's orders, newest first: 'history' = DELIVERED/CANCELLED, 'open' = the rest (LIFF order list). */
+  listUserOrders(userId: string, scope: 'history' | 'open', limit: number): Promise<OrderRow[]>;
   /** Most recent DELIVERED order (B2B reorder). */
   lastDeliveredOrder(userId: string): Promise<OrderRow | null>;
   /** DELIVERED orders with delivered_at >= sinceIso (Today's Sales Summary). */
@@ -94,6 +96,8 @@ export interface Repo {
   updateOrder(id: string, expectedVersion: number, patch: OrderPatch): Promise<OrderRow | null>;
 
   getItems(orderId: string): Promise<OrderItemRow[]>;
+  /** Items of several orders in one query (LIFF order list; keeps Worker subrequests low). */
+  getItemsForOrders(orderIds: string[]): Promise<OrderItemRow[]>;
   replaceItems(orderId: string, items: NewOrderItem[]): Promise<OrderItemRow[]>;
   updateItemCosts(updates: { id: string; cost_satang: number | null }[]): Promise<void>;
   updateItemActualQty(updates: { id: string; actual_qty: number }[]): Promise<void>;

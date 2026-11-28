@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import Link from 'next/link';
 import useSWR from 'swr';
 import type { B2bApplyRequest } from '@datawan/shared';
 import { accountErrorMessage, B2bApplicationForm, UploadError, type B2bFormFields } from '@/components/B2bApplicationForm';
@@ -52,6 +53,10 @@ function Account({ auth }: { auth: { idToken: string | null; devUser: string | n
   return (
     <div className="space-y-4">
       <h1 className="text-lg font-semibold">{t.account.title}</h1>
+      <Link href="/liff/orders" className="block rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm active:scale-[0.99]">
+        <div className="font-medium">📦 {t.history.link} →</div>
+        <p className="mt-1 text-xs text-[var(--muted)]">{t.history.linkHint}</p>
+      </Link>
       {error && <p className="rounded-xl bg-[var(--red-bg)] p-3 text-sm text-[var(--red)]">{error}</p>}
       {/* key: re-seed the form's initial values whenever the server copy changes (after a submit). */}
       <B2bApplicationForm key={`${account.b2b?.status ?? 'none'}-${account.b2b?.businessName ?? ''}`} account={account} t={t} busy={busy} onSubmit={submit} />

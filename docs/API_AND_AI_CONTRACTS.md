@@ -101,11 +101,11 @@ export interface PaymentCheckView {
 |---|---|---|---|---|
 | GET | `/api/liff/me` | – | `{ user, addresses[] , registered: boolean }` | Creates user row on first call |
 | POST | `/api/liff/register` | `{ fullName?, phone?, userType, businessName?, defaultDeliveryWindow?, pdpaConsent: true }` | `{ user }` | `pdpaConsent` must be `true` |
-| GET | `/api/liff/orders?scope=open\|history` | – | `CustomerOrderView[]` | |
+| GET | `/api/liff/orders?scope=open\|history` | – | `CustomerOrderSummary[]` (`{ id, code, status, createdAt, deliveredAt, itemsPreview[≤3], itemCount, totalSatang, reorderable }`) | Own orders only (user from the LIFF token), newest first, max 20. `history` = `DELIVERED` + `CANCELLED`, `open` = the rest. `reorderable` = `DELIVERED` with ≥ 1 item whose product is still active. Never cost/margin. Default scope `history`; anything else → 400 |
 | GET | `/api/liff/orders/:id` | – | `CustomerOrderView` | 404 if not this user's |
 | PATCH | `/api/liff/orders/:id/items` | `{ items: {id?, productId?, name, qty, unit, prepType}[] }` | `CustomerOrderView` | Allowed ≤ `PRICE_QUOTED`; returns to `AWAITING_PRICE` if already quoted |
-| POST | `/api/liff/orders/:id/confirm` | – | `CustomerOrderView` | `AWAITING_CONFIRMATION → AWAITING_LOCATION` |
-| POST | `/api/liff/orders/:id/location` | `{ addressId? } \| { lat, lng, addressText?, source }` + `{ recipientName?, recipientPhone?, saveAs? }` | `CustomerOrderView` | |
+| POST | `/api/liff/orders/:id/confirm` | – | `CustomerOrderView` | `If-Match`. `AWAITING_CONFIRMATION → AWAITING_LOCATION` (`CUSTOMER_CONFIRM`, actor customer). 422 if the order has no items or the AI draft still has `missing_fields` |
+| POST | `/api/liff/orders/:id/location` | `OrderAddressRequest { addressId }` (built). The `{ lat, lng, … }` form is **not built**: new pins come through the chat location message | `CustomerOrderView` | `If-Match`. Only in `AWAITING_LOCATION`. `addressId` must be one of the caller's own addresses (else 404). With a recipient (address, else profile) → `LOCATION_SET` → `AWAITING_PRICE` + owner `NEW_ORDER` Web Push; without one the order is held for the recipient card. Audit `ADDRESS_REUSED` |
 | POST | `/api/liff/geocode` | `{ query: string }` | `{ candidates: {label, lat, lng}[] }` | Longdo → OSM fallback |
 | POST | `/api/liff/orders/:id/accept` | – | `CustomerOrderView` | |
 | POST | `/api/liff/orders/:id/counter` | `{ amountSatang, message? }` | `CustomerOrderView` | `amountSatang` < current offer |
@@ -114,7 +114,7 @@ export interface PaymentCheckView {
 | POST | `/api/liff/orders/:id/slip` | `{ path }` | `CustomerOrderView` | Body `{ path, qrPayload }`. `qrPayload` is the bank Mini-QR text the customer's browser decoded **before** uploading; the Worker re-validates it with `parseSlipQr` (format + CRC; no image decoding on Workers) → **422 `NOT_A_SLIP`** if invalid. Only in `AWAITING_PAYMENT` / `PAYMENT_EXPIRED` (else 409; `slip-upload-url` too). `path` must be `slips/<this order id>/<uuid>.<jpeg\|png\|webp>` (as issued by `slip-upload-url`), else 400 before Storage is read. Payment `check_details.source = 'liff'`, `client_qr = { sending_bank }` |
 | POST | `/api/liff/orders/:id/cancel` | `{ reason? }` | `CustomerOrderView` | Only before `PAYMENT_REVIEW` |
 | POST | `/api/liff/orders/:id/heartbeat` | – | `204` | Every 30 s while visible |
-| POST | `/api/liff/reorder` | `{ sourceOrderId, requestedDeliveryAt? }` | `CustomerOrderView` | B2B; new order in `AWAITING_CONFIRMATION` |
+| POST | `/api/liff/reorder` | `ReorderRequest { sourceOrderId, requestedDeliveryAt? }` | `ReorderResponse` = `CustomerOrderView` + `{ skippedItems: string[], deduped: boolean }` (201 new, 200 deduped) | **B2C and B2B.** Source must be the caller's (else 404) and `DELIVERED` (else 409 `INVALID_FROM_STATE`). Copies product/qty/unit/prep/note of items whose product is still active; **no Gemini call, no prices** (owner quotes as usual, §3.1); no LINE push. Skipped items → `needs_owner_review=true`; none left → 409 `NOTHING_TO_REORDER`. An unconfirmed reorder of the same source is returned instead of a duplicate. New order: `channel='liff'`, `source_order_id` set, becomes `users.active_order_id`. The view's `reuseAddress` offers the source order's address while `AWAITING_LOCATION` |
 | GET | `/api/liff/account` | – | `CustomerAccountView` | B2B account; see §2.3a |
 | POST | `/api/liff/account/b2b/doc-upload-url` | `B2bDocUploadUrlRequest { contentType }` | `{ uploadUrl, path }` | §2.3a; 409 `TOO_MANY_DOCUMENTS` at 3 un-purged documents |
 | POST | `/api/liff/account/b2b` | `B2bApplyRequest` (incl. `pdpaConsent: true`) | `CustomerAccountView` | §2.3a; 409 `TOO_MANY_DOCUMENTS` / `INVALID_FROM_STATE` |

@@ -7,6 +7,7 @@ import {
   computeMargin,
   type AddressRow,
   type CustomerOrderView,
+  type CustomerOrderSummary,
   type CustomerAccountView,
   type BusinessProfileRow,
   type BusinessDocumentRow,
@@ -33,6 +34,7 @@ import { orderNeedsRecipient } from './recipient';
 import { orderChannel } from './realtime';
 import { buildPromptPayPayload } from './promptpay';
 import { withNames } from './itemNames';
+import { reorderableItems } from './reorder';
 
 const LALAMOVE_CARD_STATES = new Set<OrderStatus>(['AWAITING_SHIPPING_FEE', 'AWAITING_PAYMENT', 'PAYMENT_EXPIRED', 'PAYMENT_REVIEW', 'PAID', 'DELIVERING']);
 
@@ -63,6 +65,7 @@ export interface CustomerViewArgs {
   negotiations: NegotiationRow[];
   address: AddressRow | null;
   promptpayId: string;
+  reuseAddress?: { id: string; addressText: string | null } | null;
 }
 
 export function toCustomerOrderView(args: CustomerViewArgs): CustomerOrderView {
@@ -93,6 +96,24 @@ export function toCustomerOrderView(args: CustomerViewArgs): CustomerOrderView {
     },
     realtime: { channel: orderChannel(order) },
     ownerDelayed: order.owner_reminded_at !== null,
+    sourceOrderId: order.source_order_id,
+    reuseAddress: args.reuseAddress ?? null,
+  };
+}
+
+/** LIFF order list row. `products` = active products (reorderable needs at least one still sold). */
+export function toCustomerOrderSummary(order: OrderRow, items: OrderItemRow[], products: ProductRow[]): CustomerOrderSummary {
+  const views = toItemView(items, products);
+  return {
+    id: order.id,
+    code: order.code,
+    status: order.status,
+    createdAt: order.created_at,
+    deliveredAt: order.delivered_at,
+    itemsPreview: views.slice(0, 3).map((it) => ({ name: it.name, qty: it.qty, unit: it.unit })),
+    itemCount: views.length,
+    totalSatang: order.total_satang,
+    reorderable: order.status === 'DELIVERED' && reorderableItems(items, products).copy.length > 0,
   };
 }
 

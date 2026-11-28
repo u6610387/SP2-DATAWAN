@@ -95,6 +95,11 @@ export class SupabaseRepo implements Repo {
     if (filter.statuses) q = q.in('status', filter.statuses);
     return must(await q, 'listOpenOrders');
   }
+  async listUserOrders(userId: string, scope: 'history' | 'open', limit: number) {
+    const base = this.db.from('orders').select('*').eq('user_id', userId);
+    const q = scope === 'open' ? base.not('status', 'in', OPEN_FILTER) : base.in('status', [...FINAL_STATUSES]);
+    return must(await q.order('created_at', { ascending: false }).limit(limit), 'listUserOrders');
+  }
   async lastDeliveredOrder(userId: string) {
     return must(
       await this.db.from('orders').select('*').eq('user_id', userId).eq('status', 'DELIVERED').order('delivered_at', { ascending: false }).limit(1).maybeSingle(),
@@ -110,6 +115,10 @@ export class SupabaseRepo implements Repo {
     return rows[0] ?? null;
   }
 
+  async getItemsForOrders(orderIds: string[]) {
+    if (!orderIds.length) return [];
+    return must(await this.db.from('order_items').select('*').in('order_id', orderIds).order('sort'), 'getItemsForOrders');
+  }
   async getItems(orderId: string) {
     return must(await this.db.from('order_items').select('*').eq('order_id', orderId).order('sort'), 'getItems');
   }

@@ -125,6 +125,8 @@ const BODY_SCHEMA: Record<string, keyof typeof Contracts> = {
   'POST /api/liff/orders/:param/recipient': 'RecipientContactRequest',
   'POST /api/liff/orders/:param/slip-upload-url': 'SlipUploadUrlRequest',
   'POST /api/liff/orders/:param/slip': 'SlipSubmitRequest',
+  'POST /api/liff/orders/:param/location': 'OrderAddressRequest',
+  'POST /api/liff/reorder': 'ReorderRequest',
   'POST /api/liff/account/b2b/doc-upload-url': 'B2bDocUploadUrlRequest',
   'POST /api/owner/customers/:param/approve': 'OwnerB2bDecisionRequest',
   'POST /api/owner/customers/:param/acknowledge': 'OwnerB2bDecisionRequest',
@@ -145,6 +147,8 @@ const NEEDS_IF_MATCH = new Set([
   'POST /api/liff/orders/:param/accept',
   'POST /api/liff/orders/:param/counter',
   'POST /api/liff/orders/:param/recipient',
+  'POST /api/liff/orders/:param/confirm',
+  'POST /api/liff/orders/:param/location',
 ]);
 
 const calls = findWebCalls();

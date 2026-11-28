@@ -162,6 +162,13 @@ export class MemoryRepo implements Repo {
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
       .map((o) => ({ ...o }));
   }
+  async listUserOrders(userId: string, scope: 'history' | 'open', limit: number) {
+    return this.orders
+      .filter((o) => o.user_id === userId && (scope === 'open' ? this.isOpen(o) : !this.isOpen(o)))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, limit)
+      .map((o) => ({ ...o }));
+  }
   async lastDeliveredOrder(userId: string) {
     const o = this.orders
       .filter((x) => x.user_id === userId && x.status === 'DELIVERED')
@@ -187,6 +194,9 @@ export class MemoryRepo implements Repo {
     return { ...o };
   }
 
+  async getItemsForOrders(orderIds: string[]) {
+    return this.items.filter((i) => orderIds.includes(i.order_id)).sort((a, b) => a.sort - b.sort).map((i) => ({ ...i }));
+  }
   async getItems(orderId: string) {
     return this.items.filter((i) => i.order_id === orderId).sort((a, b) => a.sort - b.sort).map((i) => ({ ...i }));
   }

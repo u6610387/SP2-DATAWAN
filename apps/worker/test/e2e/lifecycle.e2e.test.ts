@@ -313,10 +313,13 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
   async function orderInPaymentReview(text: string): Promise<{ id: string; code: string; paymentId: string }> {
     await customerText(text);
     // With another order still open the bot asks "add to it or start a new order?" — choose new.
-    if (!(await db.query(`select 1 from orders where status = 'AWAITING_CONFIRMATION'`)).rows.length) {
+    // This customer's draft only: other tests may leave another customer's draft open.
+    const draftSql = `select o.id, o.code from orders o join users u on u.id = o.user_id
+      where o.status = 'AWAITING_CONFIRMATION' and u.line_user_id = $1 order by o.created_at desc`;
+    if (!(await db.query(draftSql, [CUSTOMER_LINE])).rows.length) {
       await webhook(CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'new') } });
     }
-    const { id, code } = (await db.query<{ id: string; code: string }>(`select id, code from orders where status = 'AWAITING_CONFIRMATION'`)).rows[0]!;
+    const { id, code } = (await db.query<{ id: string; code: string }>(draftSql, [CUSTOMER_LINE])).rows[0]!;
     await webhook(CUSTOMER_LINE, { type: 'postback', postback: { data: findPostback(line.replies.at(-1)!.messages, 'confirm') } });
     await webhook(CUSTOMER_LINE, { type: 'message', message: { id: `m${seq + 1}`, type: 'location', latitude: 13.72, longitude: 100.47, address: 'ตลาดสดธนบุรี' } });
     let own = await ownerGet(id);
@@ -1011,5 +1014,50 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     } finally {
       vi.useRealTimers();
     }
+  }, 60_000);
+  it('LIFF history + one-tap reorder: delivered order listed, reorder copies items (no price), confirm + same address → AWAITING_PRICE', async () => {
+    // A real delivered order: paid by the owner, dispatched, delivered.
+    const o = await orderInPaymentReview('หอยแครง 3 โล');
+    let own = await ownerGet(o.id);
+    await web.ownerFetch(`/api/owner/payments/${o.paymentId}/confirm`, OWNER_TOKEN, { method: 'POST', body: { overrideReason: 'checked image' }, ifMatch: own.version });
+    own = await ownerGet(o.id);
+    await web.ownerFetch(`/api/owner/orders/${o.id}/dispatch`, OWNER_TOKEN, { method: 'POST', body: { trackingUrl: 'https://share.lalamove.com/?TH-REORDER' }, ifMatch: own.version });
+    own = await ownerGet(o.id);
+    await web.ownerFetch(`/api/owner/orders/${o.id}/delivered`, OWNER_TOKEN, { method: 'POST', body: {}, ifMatch: own.version });
+    expect((await dbOrder(o.id)).status).toBe('DELIVERED');
+
+    const history = await web.listLiffOrders(liffAuth, 'history');
+    const row = history.find((h) => h.id === o.id)!;
+    expect(row).toMatchObject({ code: o.code, status: 'DELIVERED', reorderable: true, itemCount: 1 });
+    expect(row.itemsPreview[0]).toMatchObject({ name: 'หอยแครง', qty: 3 });
+    expect((await web.listLiffOrders(liffAuth, 'open')).every((x) => x.status !== 'DELIVERED' && x.status !== 'CANCELLED')).toBe(true);
+
+    const pushesBefore = line.pushes.length;
+    const re = await web.reorderFrom(liffAuth, o.id);
+    expect(re).toMatchObject({ status: 'AWAITING_CONFIRMATION', sourceOrderId: o.id, productPriceSatang: null, totalSatang: null, skippedItems: [], deduped: false });
+    expect(re.items.map((i) => [i.name, i.qty])).toEqual([['หอยแครง', 3]]);
+    const dbRow = (await db.query<{ channel: string; source_order_id: string; ai_parse: unknown; product_price_satang: string | null }>(
+      'select channel, source_order_id, ai_parse, product_price_satang from orders where id = $1', [re.id])).rows[0]!;
+    expect(dbRow).toEqual({ channel: 'liff', source_order_id: o.id, ai_parse: null, product_price_satang: null });
+    expect((await web.reorderFrom(liffAuth, o.id))).toMatchObject({ id: re.id, deduped: true });
+
+    let v = await agreedVersion(re.id, 'AWAITING_CONFIRMATION');
+    await expectConflict(web.liffFetch(`/api/liff/orders/${re.id}/confirm`, liffAuth, { method: 'POST', ifMatch: v + 1 }), 'VERSION_CONFLICT');
+    expect((await dbOrder(re.id)).version).toBe(v);
+    const confirmed = await web.liffFetch<CustomerOrderView>(`/api/liff/orders/${re.id}/confirm`, liffAuth, { method: 'POST', ifMatch: v });
+    expect(lastIfMatch()).toBe(String(v));
+    v = await agreedVersion(re.id, 'AWAITING_LOCATION');
+    expect(confirmed.reuseAddress?.addressText).toBe('ตลาดสดธนบุรี');
+
+    const located = await web.liffFetch<CustomerOrderView>(`/api/liff/orders/${re.id}/location`, liffAuth, { method: 'POST', body: { addressId: confirmed.reuseAddress!.id }, ifMatch: v });
+    expect(located.delivery).toMatchObject({ hasLocation: true, needsRecipient: false, recipientName: CUSTOMER_NAME });
+    await agreedVersion(re.id, 'AWAITING_PRICE');
+    expect(line.pushes.length).toBe(pushesBefore); // no LINE push quota used
+    expect(notifier.alerts.filter((a) => a.kind === 'NEW_ORDER' && a.orderId === re.id)).toHaveLength(1);
+
+    const ev = await db.query<{ actor: string; event: string }>('select actor, event from order_events where order_id = $1 order by created_at, id', [re.id]);
+    expect(ev.rows.map((r) => `${r.actor}:${r.event}`).sort()).toEqual(
+      ['customer:ADDRESS_REUSED', 'customer:CUSTOMER_CONFIRM', 'customer:LOCATION_SET', 'customer:ORDER_CREATED'],
+    );
   }, 60_000);
 });

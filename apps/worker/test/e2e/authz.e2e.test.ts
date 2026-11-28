@@ -87,6 +87,43 @@ describe('authorization over every registered route', () => {
     expect(JSON.stringify(h.repo.orders[0])).toBe(before); // nothing changed, not even presence
   });
 
+  // Ids taken from a request body or query, not the path: scoped to the caller too.
+  it("customer B can't list, reorder or reuse the address of customer A's order", async () => {
+    const { h, app, orderA } = await setup();
+    const a = h.repo.orders[0]!;
+    a.status = 'DELIVERED';
+    a.delivered_at = h.clock.now().toISOString();
+    const asB = (path: string, body?: unknown) =>
+      app.request(path, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: { Authorization: `Bearer ${LIFF_TOKEN_B}`, 'Content-Type': 'application/json' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+
+    for (const scope of ['history', 'open']) {
+      const res = await asB(`/api/liff/orders?scope=${scope}`);
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).toBe('[]');
+    }
+    const ordersBefore = h.repo.orders.length;
+    const res = await asB('/api/liff/reorder', { sourceOrderId: orderA.id });
+    expect(res.status).toBe(404);
+    const text = await res.text();
+    expect(text).not.toContain(orderA.code);
+    expect(h.repo.orders.length).toBe(ordersBefore);
+
+    // B's own reorder-free draft can't take A's address.
+    await h.userText(CUSTOMER_B, 'หอยแครง 1 โล');
+    await h.userPostback(CUSTOMER_B, findPostback(h.line.lastReply(), 'confirm'));
+    const bOrder = h.repo.orders.find((o) => o.id !== orderA.id && o.status === 'AWAITING_LOCATION')!;
+    expect(bOrder).toBeDefined();
+    const loc = await asB(`/api/liff/orders/${bOrder.id}/location`, { addressId: a.address_id });
+    expect(loc.status).toBe(404);
+    expect(await loc.text()).not.toContain(ADDRESS);
+    expect(h.repo.orders.find((o) => o.id === bOrder.id)!.address_id).toBeNull();
+  });
+
   it('customer A can read their own order (control)', async () => {
     const { app, orderA } = await setup();
     const res = await app.request(`/api/liff/orders/${orderA.id}`, { headers: { Authorization: `Bearer ${LIFF_TOKEN}` } });

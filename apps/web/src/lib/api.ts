@@ -3,7 +3,7 @@
  * When NEXT_PUBLIC_USE_MOCKS=true, requests are served from src/mocks instead of the network —
  * lets the dashboard/LIFF UI be exercised in Chrome with no Worker/Supabase/LINE running.
  */
-import type { ApiError, B2bApplyRequest, CustomerAccountView, OwnerB2bDetailView, OwnerB2bSummaryView } from '@datawan/shared';
+import type { ApiError, B2bApplyRequest, CustomerAccountView, CustomerOrderSummary, OrderHistoryScope, OwnerB2bDetailView, OwnerB2bSummaryView, ReorderResponse } from '@datawan/shared';
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8787';
 const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === 'true';
@@ -97,4 +97,13 @@ export function acknowledgeB2bCustomer(token: string, userId: string, expectedUp
 }
 export function revokeB2bCustomer(token: string, userId: string, reason: string, expectedUpdatedAt: string): Promise<OwnerB2bDetailView> {
   return ownerFetch<OwnerB2bDetailView>(`/api/owner/customers/${userId}/revoke`, token, { method: 'POST', body: { reason, expectedUpdatedAt } });
+}
+
+// ---- LIFF order history + one-tap reorder (docs/API_AND_AI_CONTRACTS.md §2.2) ----
+export function listLiffOrders(auth: LiffAuth, scope: OrderHistoryScope): Promise<CustomerOrderSummary[]> {
+  return liffFetch<CustomerOrderSummary[]>(`/api/liff/orders?scope=${scope}`, auth);
+}
+
+export function reorderFrom(auth: LiffAuth, sourceOrderId: string): Promise<ReorderResponse> {
+  return liffFetch<ReorderResponse>('/api/liff/reorder', auth, { method: 'POST', body: { sourceOrderId } });
 }
