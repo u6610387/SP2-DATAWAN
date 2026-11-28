@@ -102,4 +102,22 @@ describe('push slots: price quote, total, tracking — once each', () => {
     expect(row.push_count).toBe(1);
     expect(h.realtime.sent.at(-1)!.version).toBe(row.version);
   });
+
+  it('LIFF open: total and tracking still push (chat history), the price quote waits (production A19)', async () => {
+    const h = makeHarness();
+    const o = await toPriceAwaiting(h);
+    const present = () => { h.repo.orders.find((x) => x.id === o.id)!.customer_last_seen_at = h.clock.now().toISOString(); };
+    present();
+    await h.ownerText(`${o.code} 900`);
+    expect(deferred(h).at(-1)).toMatchObject({ why: 'PRICE_READY', reason: 'PRESENT' });
+    await h.customerPostback(`a=accept&o=${o.id}`);
+    present();
+    await h.ownerText(`${o.code} ship 100`);
+    await h.customerImage('img-1', new Uint8Array(200).fill(9));
+    await h.ownerText(`${o.code} paid`);
+    present();
+    await h.ownerText(`${o.code} track https://share.lalamove.com/abc`);
+    expect(sentWhys(h)).toEqual(['TOTAL_READY', 'TRACKING_LINK']);
+    expect(JSON.stringify(h.line.pushes.at(-1)!.messages)).toContain('https://share.lalamove.com/abc');
+  });
 });

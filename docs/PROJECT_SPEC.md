@@ -190,8 +190,8 @@ The guard also keeps its own counter (`quota_logs.local_count`) because LINE's c
 ### 7.2 Push priority & budget
 | Priority | Event | Rule |
 |---|---|---|
-| P1 | Total + QR ready (step 6), Tracking link (step 8) | Only if customer's LIFF is **not** present on the order's Realtime channel |
-| P2 | Price ready (step 3) | As P1, plus NORMAL mode only and more than `PUSH_DAILY_RESERVE_P1` pushes left today: when quota is tight the money and delivery pushes win |
+| P1 | Total + QR ready (step 6), Tracking link (step 8) | Sent **even if the customer's LIFF is open**, so the payment card and the Lalamove link stay in the LINE chat history (2026-11-28, production A19) |
+| P2 | Price ready (step 3) | Only if the customer's LIFF is **not** open, NORMAL mode only, and more than `PUSH_DAILY_RESERVE_P1` pushes left today: when quota is tight the money and delivery pushes win |
 | Never | Owner counter / hold, owner notes (substitute offers), 15-min reassurance, payment expiry, status changes, marketing | LIFF / reply only (notes: LIFF card + once in the next chat reply) |
 
 Additional rules:

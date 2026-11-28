@@ -99,6 +99,20 @@ export interface Dictionary {
     slipQrError: string;
     slipQrRecheck: string;
     overrideReasonPlaceholder: string;
+    /** Slip check labels: what each rule actually verified. */
+    slipRule: Record<'READABLE' | 'REFERENCE' | 'AMOUNT' | 'RECEIVER' | 'TIME', string>;
+    slipResult: Record<'PASS' | 'WARN' | 'FAIL', string>;
+    /** REFERENCE · PASS: the QR proves the reference only. */
+    slipReferencePass: string;
+    slipNotChecked: string;
+    slipChecklistTitle: string;
+    slipChecklistHint: string;
+    slipChecklistAmount: string;
+    slipChecklistReceiver: string;
+    slipChecklistTime: string;
+    slipChecklistIncomplete: string;
+    slipMismatchBanner: string;
+    slipOverrideRequired: string;
     confirmPayment: string;
     rejectSlip: string;
     rejectReasonFallback: string;

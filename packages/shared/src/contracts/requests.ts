@@ -30,8 +30,18 @@ export const CounterOfferRequest = z.object({
 });
 export type CounterOfferRequest = z.infer<typeof CounterOfferRequest>;
 
+/** What the owner reads off the slip (manual slip mode). See slipChecklist.ts for the rules. */
+export const OwnerSlipChecklist = z.object({
+  amountSatang: z.number().int().nonnegative(),
+  receiverIsShop: z.boolean(),
+  slipTime: z.string().datetime({ offset: true }),
+});
+export type OwnerSlipChecklist = z.infer<typeof OwnerSlipChecklist>;
+
 export const ConfirmPaymentRequest = z.object({
   overrideReason: z.string().max(500).nullable().optional(),
+  /** Required when nothing read the slip's amount (GEMINI_SLIP_MODE=manual): 422 SLIP_CHECKLIST_REQUIRED. */
+  slipChecklist: OwnerSlipChecklist.optional(),
 });
 export type ConfirmPaymentRequest = z.infer<typeof ConfirmPaymentRequest>;
 

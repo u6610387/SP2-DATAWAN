@@ -16,7 +16,7 @@ export interface AiConfig {
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
   GEMINI_SLIP_API_KEY?: string;
-  GEMINI_SLIP_MODE: 'paid' | 'manual' | 'redacted';
+  GEMINI_SLIP_MODE: 'paid' | 'manual';
 }
 
 export function createAi(cfg: AiConfig, hooks: Omit<AiServiceOptions, 'slipMode'> = {}, now?: () => Date): AiService {

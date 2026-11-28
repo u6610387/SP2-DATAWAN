@@ -35,7 +35,41 @@ describe('SlipPaymentCard', () => {
   it('WARN with no AI read still shows the check detail next to the image', () => {
     const html = render(order({ checks: [{ rule: 'READABLE', result: 'WARN', detail: 'ตรวจด้วยตนเอง: ระบบไม่ได้อ่านสลิปอัตโนมัติ' }] }));
     expect(html).toContain('<img');
-    expect(html).toMatch(/READABLE · WARN<\/span>: ตรวจด้วยตนเอง/);
+    expect(html).toMatch(/อ่านสลิป · ต้องตรวจ<\/span>: ตรวจด้วยตนเอง/);
+  });
+
+  // Production A19: a 105 THB slip to another shop showed a green "REFERENCE · PASS" on a 1 THB order.
+  it('REFERENCE · PASS says it did NOT check amount, receiver or time; those show as not checked', () => {
+    const html = render(order({ checks: [
+      { rule: 'READABLE', result: 'WARN', detail: 'manual' },
+      { rule: 'REFERENCE', result: 'PASS', detail: 'QR ธนาคารถูกต้อง' },
+    ] }));
+    expect(html).toContain(`เลขอ้างอิง (QR) · ${th.orderDetail.slipReferencePass}`);
+    expect(html).not.toMatch(/REFERENCE · PASS/);
+    for (const rule of ['ยอดเงิน', 'ผู้รับ', 'เวลาโอน']) expect(html).toContain(`${rule} · ${th.orderDetail.slipNotChecked}`);
+  });
+
+  it('manual mode: shows the checklist and keeps ยืนยันรับเงิน disabled until it is filled', () => {
+    const html = render(order({ checks: [{ rule: 'READABLE', result: 'WARN', detail: 'manual' }] }));
+    expect(html).toContain(th.orderDetail.slipChecklistTitle);
+    expect(html).toContain(th.orderDetail.slipChecklistAmount);
+    expect(html).toContain(th.orderDetail.slipChecklistReceiver);
+    expect(html).toContain('type="datetime-local"');
+    expect(html).toContain(th.orderDetail.slipChecklistIncomplete);
+    const confirm = html.match(/<button[^>]*>(?:(?!<\/button>).)*ยืนยันรับเงิน/)?.[0] ?? '';
+    expect(confirm).toContain('disabled');
+  });
+
+  it('AI already read the amount (paid mode): no checklist; stored FAILs get the red banner', () => {
+    const html = render(order({ result: 'FAIL', checks: [
+      { rule: 'READABLE', result: 'PASS', detail: 'อ่านครบ' },
+      { rule: 'AMOUNT', result: 'FAIL', detail: 'สลิป ฿105.00 ≠ ยอด ฿1.00' },
+    ] }));
+    expect(html).not.toContain(th.orderDetail.slipChecklistTitle);
+    expect(html).toContain('role="alert"');
+    expect(html).toContain(th.orderDetail.slipMismatchBanner);
+    expect(html).toContain('ยอดเงิน: สลิป ฿105.00 ≠ ยอด ฿1.00');
+    expect(html).toContain(th.orderDetail.slipOverrideRequired);
   });
 
   it('says so instead of rendering nothing when the URL is missing', () => {

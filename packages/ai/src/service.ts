@@ -76,7 +76,7 @@ export interface AiService {
 
 export interface AiServiceOptions {
   /** GEMINI_SLIP_MODE. 'manual' = never send slips to any provider. */
-  slipMode: 'paid' | 'manual' | 'redacted';
+  slipMode: 'paid' | 'manual';
   /** Called with every outgoing text payload (eval hooks / metrics). */
   onPayload?: (task: AiTask, payload: unknown) => void;
   /** Called with call metadata (no content) for logging. */

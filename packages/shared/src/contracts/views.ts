@@ -104,6 +104,8 @@ export interface PaymentCheckView {
 export type MarginColor = 'GREEN' | 'RED' | 'GREY';
 
 export interface OwnerOrderView extends Omit<CustomerOrderView, 'realtime'> {
+  /** Order creation time (slip checklist: a transfer before this is an old slip). */
+  createdAt: string;
   customer: { id: string; type: 'B2C' | 'B2B'; name: string | null; businessName: string | null; phone: string | null;
     b2b: { businessName: string; deliveryWindow: string | null } | null;
   };
@@ -147,6 +149,7 @@ export type ApiErrorCode =
   | 'INVALID_FROM_STATE'
   | 'TOO_MANY_DOCUMENTS'
   | 'NOTHING_TO_REORDER'
+  | 'SLIP_CHECKLIST_REQUIRED'
   | 'INTERNAL';
 
 export interface ApiError {

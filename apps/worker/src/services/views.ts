@@ -157,6 +157,7 @@ export function toOwnerOrderView(args: OwnerViewArgs): OwnerOrderView {
   const { realtime: _realtime, ...rest } = toCustomerOrderView(args);
   return {
     ...rest,
+    createdAt: order.created_at,
     customer: {
       id: user.id,
       type: user.user_type,

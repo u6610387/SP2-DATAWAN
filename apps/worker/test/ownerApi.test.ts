@@ -138,7 +138,7 @@ describe('owner REST API', () => {
     await h.repo.insertPayment({
       order_id: h.repo.orders[0]!.id, slip_path: 'slips/x.jpg', ai_extract: null,
       amount_satang: h.repo.orders[0]!.total_satang, slip_time: null, receiver_text: 'คนอื่น', reference_no: 'REF-1', check_result: 'FAIL',
-      check_details: { checks: [{ rule: 'RECEIVER', result: 'FAIL', detail: 'mismatch' }] },
+      check_details: { checks: [{ rule: 'AMOUNT', result: 'PASS', detail: 'ok' }, { rule: 'RECEIVER', result: 'FAIL', detail: 'mismatch' }] },
     });
     const paymentId = h.repo.payments[0]!.id;
     await applyEvent(h.deps, h.repo.orders[0]!, 'SLIP_UPLOADED', 'customer', {}, { payment_id: paymentId, result: 'FAIL' });

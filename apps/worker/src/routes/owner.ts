@@ -277,10 +277,14 @@ export function createOwnerRoutes(deps: Deps) {
     if (conflict) return conflict;
     const parsed = ConfirmPaymentRequest.safeParse(await readJson(c));
     if (!parsed.success) return apiError(c, 'VALIDATION_FAILED', parsed.error.message, 400);
-    const r = await actions.ownerConfirmPayment(deps, order, c.get('ownerId'), parsed.data.overrideReason ?? null);
+    const r = await actions.ownerConfirmPayment(deps, order, c.get('ownerId'), parsed.data.overrideReason ?? null, parsed.data.slipChecklist ?? null);
     if (!r.ok) {
       if (r.reason === 'NO_SLIP') return apiError(c, 'VALIDATION_FAILED', 'no slip to confirm', 422);
-      if (r.reason === 'NEEDS_OVERRIDE') return apiError(c, 'VALIDATION_FAILED', `slip check is ${r.checkResult}; overrideReason required`, 422);
+      if (r.reason === 'NEEDS_CHECKLIST') return apiError(c, 'SLIP_CHECKLIST_REQUIRED', 'nothing read this slip: enter its amount, receiver and time (slipChecklist)', 422);
+      if (r.reason === 'NEEDS_OVERRIDE') {
+        const failed = r.checks.filter((x) => x.result !== 'PASS').map((x) => `${x.rule} ${x.result}`).join(', ');
+        return apiError(c, 'VALIDATION_FAILED', `slip check is ${r.checkResult} (${failed}); overrideReason required`, 422);
+      }
       return conflictError(c, r.reason, r.order);
     }
     return c.json(await buildOwnerView(deps, r.order));
