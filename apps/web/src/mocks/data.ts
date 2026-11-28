@@ -8,6 +8,7 @@ import type { OwnerB2bDetailView, OwnerOrderView, QuotaStatus } from '@datawan/s
 function order(partial: Partial<OwnerOrderView> & Pick<OwnerOrderView, 'id' | 'code' | 'status'>): OwnerOrderView {
   return {
     version: 1,
+    createdAt: '2027-01-14T01:00:00.000Z',
     items: [],
     productPriceSatang: null,
     priceNote: null,

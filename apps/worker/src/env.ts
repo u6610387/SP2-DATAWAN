@@ -53,7 +53,11 @@ export const ConfigSchema = z.object({
   USE_MOCK_AI: bool.default(true),
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().optional(),
-  GEMINI_SLIP_MODE: z.enum(['paid', 'manual', 'redacted']).default('paid'),
+  /**
+   * 'redacted' is NOT accepted: it was never implemented and would have sent the raw slip (payer's
+   * name) to Gemini (§3.3). Add it back only together with a real redaction step.
+   */
+  GEMINI_SLIP_MODE: z.enum(['paid', 'manual'], { message: "GEMINI_SLIP_MODE must be 'paid' or 'manual' ('redacted' is not implemented)" }).default('paid'),
   GEMINI_SLIP_API_KEY: z.string().optional(),
 
   PROMPTPAY_ID: z.string().min(1),
@@ -90,7 +94,8 @@ export function isOwnerLineUser(cfg: Pick<Config, 'LINE_OWNER_USER_ID'>, userId:
 export function loadConfig(env: Bindings): Config {
   const parsed = ConfigSchema.safeParse(env);
   if (!parsed.success) {
-    const fields = parsed.error.issues.map((i) => i.path.join('.')).join(', ');
+    // Field names, plus our own messages (never the values, which may be secrets).
+    const fields = parsed.error.issues.map((i) => (i.path.join('.') === 'GEMINI_SLIP_MODE' ? `GEMINI_SLIP_MODE (${i.message})` : i.path.join('.'))).join(', ');
     throw new Error(`Invalid worker configuration: ${fields}`);
   }
   return parsed.data;

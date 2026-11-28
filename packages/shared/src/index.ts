@@ -6,6 +6,7 @@ export * from './money';
 export * from './phone';
 export * from './tracking';
 export * from './slipQr';
+export * from './slipChecklist';
 export * from './taxId';
 export * from './state/orderMachine';
 export * from './i18n/th';

@@ -25,6 +25,12 @@ export type LifecyclePush = (typeof LIFECYCLE_PUSHES)[number];
  * 80% warning and when today's budget is down to the reserve); total + tracking are P1.
  */
 export const PUSH_PRIORITY: Readonly<Record<LifecyclePush, PushPriority>> = { PRICE_READY: 'P2', TOTAL_READY: 'P1', TRACKING_LINK: 'P1' };
+/**
+ * Pushed even while the customer's LIFF page is open: the payment card and the Lalamove link must
+ * land in the LINE chat history (production A19: TRACKING_LINK deferred as PRESENT, never seen in
+ * chat). Still once per order and still subject to Quota Saver and the daily budget.
+ */
+export const PUSH_EVEN_IF_PRESENT: ReadonlySet<LifecyclePush> = new Set(['TOTAL_READY', 'TRACKING_LINK']);
 
 export function quotaMode(used: number, limit: number, cfg: Pick<Config, 'QUOTA_WARN_RATIO' | 'QUOTA_SAVER_RATIO'>): QuotaMode {
   if (limit <= 0) return 'NORMAL'; // 'none' type = unlimited (paid plans)
@@ -47,6 +53,8 @@ export interface PushDecisionInput {
   alreadySent: boolean;
   /** Today's pushes kept for P1 (total + tracking): a P2 push needs more than this left. */
   dailyReserve: number;
+  /** PUSH_EVEN_IF_PRESENT: an open LIFF page doesn't hold this push back. */
+  ignorePresence: boolean;
   customerPresent: boolean;
   customerActive: boolean;
   mode: QuotaMode;
@@ -59,7 +67,7 @@ export interface PushDecisionInput {
 export function decidePush(i: PushDecisionInput): { send: true } | { send: false; reason: DeferReason } {
   if (!i.customerActive) return { send: false, reason: 'INACTIVE_USER' };
   if (i.alreadySent) return { send: false, reason: 'ALREADY_SENT' };
-  if (i.customerPresent) return { send: false, reason: 'PRESENT' };
+  if (i.customerPresent && !i.ignorePresence) return { send: false, reason: 'PRESENT' };
   if (i.mode === 'QUOTA_SAVER') return { send: false, reason: 'QUOTA_SAVER' };
   if (i.mode === 'WARNING' && i.priority !== 'P1') return { send: false, reason: 'WARNING_P2' };
   if (i.orderPushCount >= i.maxPerOrder) return { send: false, reason: 'ORDER_CAP' };
@@ -112,6 +120,7 @@ export async function sendPushGuarded(
     priority,
     alreadySent: pushEvents.some((e) => e.event === 'PUSH_SENT' && (e.payload as { why?: string } | null)?.why === args.reason),
     dailyReserve: deps.cfg.PUSH_DAILY_RESERVE_P1,
+    ignorePresence: PUSH_EVEN_IF_PRESENT.has(args.reason),
     customerPresent: isCustomerPresent(order, now, deps.cfg.LIFF_PRESENCE_SECONDS),
     customerActive: !!user?.is_active,
     mode: status.mode,

@@ -132,7 +132,7 @@ export interface PaymentCheckView {
 | POST | `/api/owner/orders/:id/shipping` | `{ feeSatang }` | `OwnerOrderView` (incl. `lalamoveCard`) |
 | POST | `/api/owner/orders/:id/note-draft` | `{ note }` | `{ draftId, result: OwnerNoteResult }` |
 | POST | `/api/owner/orders/:id/note-send` | `{ draftId, messageTh, substitutes }` (owner-edited) | `OwnerOrderView` |
-| POST | `/api/owner/payments/:id/confirm` | `{ overrideReason? }` (required if result ≠ PASS) | `OwnerOrderView` |
+| POST | `/api/owner/payments/:id/confirm` | `{ overrideReason?, slipChecklist? }`. `slipChecklist { amountSatang, receiverIsShop, slipTime }` is **required when nothing read the slip's amount** (manual mode) → else 422 `SLIP_CHECKLIST_REQUIRED`; it becomes the `AMOUNT` / `RECEIVER` / `TIME` checks (`ownerSlipChecks`, §5). `overrideReason` required if the resulting check ≠ PASS (422 lists the failing rules). Audit payload: `check_result`, `checks`, `override_reason`, `owner_checklist` | `OwnerOrderView` |
 | POST | `/api/owner/payments/:id/reject` | `{ reason }` | `OwnerOrderView` |
 | POST | `/api/owner/payments/:id/qr` | `{ payload: string \| null }` (`SlipQrRequest`: Mini-QR text the owner's dashboard decoded from the stored slip; `null` = no QR found) | `OwnerOrderView`. Parses `00{00 000001, 01 bank, 02 transRef} 51 TH 91 CRC-16/CCITT-FALSE`; sets the `REFERENCE` check: PASS = valid CRC and unused transRef (stored in `payments.reference_no`), FAIL = bad CRC, a transRef already used by another order, or one that differs from the AI-read reference, WARN = no QR / not a slip QR. `check_result` = the worst check. Never changes order status; 409 once the payment is confirmed. Audit event `SLIP_QR_CHECKED` (actor owner) |
 | POST | `/api/owner/orders/:id/dispatch` | `{ trackingUrl }`: the link or the courier app's pasted share text; `extractTrackingUrl` keeps the first link, adds/forces `https://`, and stores only that (400 if there's no link) | `OwnerOrderView` (`PAID → DELIVERING`; P1 `TRACKING_LINK` push via `sendPushGuarded`, outcome in `trackingPush: { sent, reason }`) |
@@ -307,7 +307,7 @@ export async function sendPushGuarded(deps, args: {
 ```
 **Push slots (2026-11-28):** an order gets at most 3 pushes, one per lifecycle reason: price quote → total + PromptPay/slip → Lalamove dispatched + tracking (`MAX_PUSH_PER_ORDER=3`). A re-quote or fee correction never pushes again (`ALREADY_SENT`). Owner counter, hold and notes never push: the customer sees them in LIFF (realtime; notes as `shopNote`) and in the next free chat reply (a note is shown once, event `NOTE_SHOWN_IN_CHAT`).
 
-Decision order: inactive user → already sent for this reason → present in LIFF → mode (QUOTA_SAVER: none; WARNING: P1 only) → per-order cap → daily budget → **P1 reserve** (a P2 push, i.e. the price quote, needs more than `PUSH_DAILY_RESERVE_P1` (3) pushes left today, so total + tracking win when quota is tight) → send (increment `orders.push_count` via `patchOrder`, so the version bump is broadcast to LIFF, and `quota_logs.local_count`). Every decision writes `order_events` (`PUSH_SENT` / `PUSH_DEFERRED`).
+Decision order: inactive user → already sent for this reason → present in LIFF (**not** for `TOTAL_READY` / `TRACKING_LINK`: `PUSH_EVEN_IF_PRESENT`, so they land in chat history) → mode (QUOTA_SAVER: none; WARNING: P1 only) → per-order cap → daily budget → **P1 reserve** (a P2 push, i.e. the price quote, needs more than `PUSH_DAILY_RESERVE_P1` (3) pushes left today, so total + tracking win when quota is tight) → send (increment `orders.push_count` via `patchOrder`, so the version bump is broadcast to LIFF, and `quota_logs.local_count`). Every decision writes `order_events` (`PUSH_SENT` / `PUSH_DEFERRED`).
 
 ---
 
@@ -347,8 +347,8 @@ export function assertNoPII(payload: unknown, ctx): void;  // throws in dev/test
 
 `GEMINI_SLIP_MODE`:
 - `paid`: send slip to a paid-tier key (`GEMINI_SLIP_API_KEY`). Used during dev/Exhibition/Defence.
-- `manual`: no AI. Worker decodes the slip's mini-QR (jsQR + jpeg-js) for `reference_no` duplicate checks; owner reads amount from the image. Zero cost, zero PII exposure.
-- `redacted` (research option): blur the payer block before sending. Only enable if the eval shows the redaction never misses the name on all sample bank layouts.
+- `manual`: no AI. The dashboard decodes the slip's Mini-QR (bank + transRef only: proves the reference is real and unused, **not** the amount, receiver or time). Before ยืนยันรับเงิน the owner fills the **slip checklist** (`ConfirmPaymentRequest.slipChecklist`: amount on the slip, "receiver is our shop" tick, slip time). `ownerSlipChecks()` (packages/shared, same code on dashboard preview and worker) turns it into `AMOUNT` (≠ `total_satang` → FAIL), `RECEIVER` (not ticked → FAIL) and `TIME` (before the order's `created_at`, minute precision, or > 10 min in the future → FAIL). Any FAIL needs an override reason; without a checklist the confirm is 422 `SLIP_CHECKLIST_REQUIRED` (the owner's LINE `paid` command then points to the dashboard). Zero cost, zero PII exposure.
+- `redacted`: **rejected at startup** (config error) since 2026-11-28. It was never implemented: any non-`manual` mode sent the raw slip to Gemini. Re-add only with a real redaction step, verified by the eval on all sample bank layouts.
 
 All images: strip EXIF, resize to max 1600 px long side, JPEG q≈80 before upload/AI.
 

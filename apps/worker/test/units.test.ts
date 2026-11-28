@@ -1,6 +1,7 @@
+import { loadConfig } from '../src/env';
 import { describe, expect, it } from 'vitest';
 import { parseOwnerCommand } from '../src/line/ownerCommands';
-import { dailyBudgetRemaining, decidePush, LIFECYCLE_PUSHES, PUSH_PRIORITY, quotaMode } from '../src/line/quota';
+import { dailyBudgetRemaining, decidePush, LIFECYCLE_PUSHES, PUSH_EVEN_IF_PRESENT, PUSH_PRIORITY, quotaMode } from '../src/line/quota';
 import { parseMapsLink } from '../src/services/location';
 import { buildPromptPayPayload } from '../src/services/promptpay';
 import { checkSlip, receiverMatches, SLIP_MANUAL_REVIEW_DETAIL } from '../src/services/slipCheck';
@@ -32,7 +33,7 @@ describe('owner command parser', () => {
 });
 
 describe('quota guard decisions', () => {
-  const base = { priority: 'P1' as const, alreadySent: false, dailyReserve: 3, customerPresent: false, customerActive: true, mode: 'NORMAL' as const, orderPushCount: 0, maxPerOrder: 3, dailyRemaining: 5 };
+  const base = { priority: 'P1' as const, alreadySent: false, dailyReserve: 3, ignorePresence: false, customerPresent: false, customerActive: true, mode: 'NORMAL' as const, orderPushCount: 0, maxPerOrder: 3, dailyRemaining: 5 };
   it('order of checks', () => {
     expect(decidePush(base)).toEqual({ send: true });
     expect(decidePush({ ...base, customerPresent: true })).toMatchObject({ reason: 'PRESENT' });
@@ -53,6 +54,12 @@ describe('quota guard decisions', () => {
     expect(decidePush({ ...base, priority: 'P2', dailyRemaining: 3 })).toMatchObject({ reason: 'DAILY_RESERVE' });
     expect(decidePush({ ...base, priority: 'P1', dailyRemaining: 1 })).toEqual({ send: true });
     expect(decidePush({ ...base, priority: 'P1', dailyRemaining: 0 })).toMatchObject({ reason: 'DAILY_BUDGET' });
+  });
+  it('total + tracking push even while LIFF is open (chat history); the price quote does not', () => {
+    expect(decidePush({ ...base, customerPresent: true, ignorePresence: true })).toEqual({ send: true });
+    expect(decidePush({ ...base, customerPresent: true, ignorePresence: true, mode: 'QUOTA_SAVER' })).toMatchObject({ reason: 'QUOTA_SAVER' });
+    expect(decidePush({ ...base, customerPresent: true, ignorePresence: true, alreadySent: true })).toMatchObject({ reason: 'ALREADY_SENT' });
+    expect([...PUSH_EVEN_IF_PRESENT].sort()).toEqual(['TOTAL_READY', 'TRACKING_LINK']);
   });
   it('lifecycle priorities: only the price quote yields when quota is tight', () => {
     expect(LIFECYCLE_PUSHES).toEqual(['PRICE_READY', 'TOTAL_READY', 'TRACKING_LINK']);
@@ -131,5 +138,16 @@ describe('maps links', () => {
     expect(parseMapsLink('https://maps.google.com/?q=13.7,100.5')).toEqual({ lat: 13.7, lng: 100.5 });
     expect(parseMapsLink('13.7234, 100.4761')).toEqual({ lat: 13.7234, lng: 100.4761 });
     expect(parseMapsLink('https://maps.app.goo.gl/abc')).toBeNull();
+  });
+});
+
+describe('config: GEMINI_SLIP_MODE', () => {
+  const base = {
+    LINE_CHANNEL_SECRET: 's', LINE_CHANNEL_ACCESS_TOKEN: 't', LINE_OWNER_USER_ID: 'U00000000000000000000000000000a11', LIFF_ID: '2000000000-abcdEFGH',
+    OWNER_AUTH_USER_ID: '11111111-1111-4111-8111-111111111111', PROMPTPAY_ID: '0812345678',
+  };
+  it("rejects 'redacted' at startup (never implemented: it would send the raw slip to Gemini)", () => {
+    expect(() => loadConfig({ ...base, GEMINI_SLIP_MODE: 'redacted' } as never)).toThrow(/GEMINI_SLIP_MODE \(.*'redacted' is not implemented/);
+    expect(loadConfig({ ...base, GEMINI_SLIP_MODE: 'manual' } as never).GEMINI_SLIP_MODE).toBe('manual');
   });
 });
