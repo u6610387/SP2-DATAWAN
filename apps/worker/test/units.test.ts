@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseOwnerCommand } from '../src/line/ownerCommands';
-import { dailyBudgetRemaining, decidePush, quotaMode } from '../src/line/quota';
+import { dailyBudgetRemaining, decidePush, LIFECYCLE_PUSHES, PUSH_PRIORITY, quotaMode } from '../src/line/quota';
 import { parseMapsLink } from '../src/services/location';
 import { buildPromptPayPayload } from '../src/services/promptpay';
 import { checkSlip, receiverMatches, SLIP_MANUAL_REVIEW_DETAIL } from '../src/services/slipCheck';
@@ -32,16 +32,31 @@ describe('owner command parser', () => {
 });
 
 describe('quota guard decisions', () => {
-  const base = { priority: 'P1' as const, customerPresent: false, customerActive: true, mode: 'NORMAL' as const, orderPushCount: 0, maxPerOrder: 1, dailyRemaining: 5 };
+  const base = { priority: 'P1' as const, alreadySent: false, dailyReserve: 3, customerPresent: false, customerActive: true, mode: 'NORMAL' as const, orderPushCount: 0, maxPerOrder: 3, dailyRemaining: 5 };
   it('order of checks', () => {
     expect(decidePush(base)).toEqual({ send: true });
     expect(decidePush({ ...base, customerPresent: true })).toMatchObject({ reason: 'PRESENT' });
     expect(decidePush({ ...base, mode: 'QUOTA_SAVER' })).toMatchObject({ reason: 'QUOTA_SAVER' });
     expect(decidePush({ ...base, mode: 'WARNING', priority: 'P2' })).toMatchObject({ reason: 'WARNING_P2' });
     expect(decidePush({ ...base, mode: 'WARNING' })).toEqual({ send: true });
-    expect(decidePush({ ...base, orderPushCount: 1 })).toMatchObject({ reason: 'ORDER_CAP' });
+    expect(decidePush({ ...base, orderPushCount: 3 })).toMatchObject({ reason: 'ORDER_CAP' });
     expect(decidePush({ ...base, dailyRemaining: 0 })).toMatchObject({ reason: 'DAILY_BUDGET' });
     expect(decidePush({ ...base, customerActive: false })).toMatchObject({ reason: 'INACTIVE_USER' });
+  });
+  it('one push per reason per order, before anything else but an inactive user', () => {
+    expect(decidePush({ ...base, alreadySent: true })).toMatchObject({ reason: 'ALREADY_SENT' });
+    expect(decidePush({ ...base, alreadySent: true, customerPresent: true })).toMatchObject({ reason: 'ALREADY_SENT' });
+    expect(decidePush({ ...base, alreadySent: true, customerActive: false })).toMatchObject({ reason: 'INACTIVE_USER' });
+  });
+  it('tight daily budget: total + tracking (P1) keep the reserve, the price quote (P2) does not', () => {
+    expect(decidePush({ ...base, priority: 'P2', dailyRemaining: 4 })).toEqual({ send: true });
+    expect(decidePush({ ...base, priority: 'P2', dailyRemaining: 3 })).toMatchObject({ reason: 'DAILY_RESERVE' });
+    expect(decidePush({ ...base, priority: 'P1', dailyRemaining: 1 })).toEqual({ send: true });
+    expect(decidePush({ ...base, priority: 'P1', dailyRemaining: 0 })).toMatchObject({ reason: 'DAILY_BUDGET' });
+  });
+  it('lifecycle priorities: only the price quote yields when quota is tight', () => {
+    expect(LIFECYCLE_PUSHES).toEqual(['PRICE_READY', 'TOTAL_READY', 'TRACKING_LINK']);
+    expect(PUSH_PRIORITY).toEqual({ PRICE_READY: 'P2', TOTAL_READY: 'P1', TRACKING_LINK: 'P1' });
   });
   it('thresholds 240 / 285 of 300', () => {
     const cfg = { QUOTA_WARN_RATIO: 0.8, QUOTA_SAVER_RATIO: 0.95 };

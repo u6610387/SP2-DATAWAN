@@ -66,6 +66,8 @@ export interface CustomerViewArgs {
   address: AddressRow | null;
   promptpayId: string;
   reuseAddress?: { id: string; addressText: string | null } | null;
+  /** LIFF view only (owner views leave it out). */
+  shopNote?: { text: string; at: string } | null;
 }
 
 export function toCustomerOrderView(args: CustomerViewArgs): CustomerOrderView {
@@ -98,6 +100,7 @@ export function toCustomerOrderView(args: CustomerViewArgs): CustomerOrderView {
     ownerDelayed: order.owner_reminded_at !== null,
     sourceOrderId: order.source_order_id,
     reuseAddress: args.reuseAddress ?? null,
+    ...(args.shopNote !== undefined ? { shopNote: args.shopNote } : {}),
   };
 }
 

@@ -57,6 +57,8 @@ export interface CustomerOrderView {
    * for a location (the reordered order's address). Null otherwise.
    */
   reuseAddress?: { id: string; addressText: string | null } | null;
+  /** Latest owner-approved note for this order (LIFF only; notes are never pushed). */
+  shopNote?: { text: string; at: string } | null;
 }
 
 /** Row in the LIFF order list (GET /api/liff/orders). Never contains cost or margin. */

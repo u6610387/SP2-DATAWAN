@@ -545,8 +545,8 @@ describe('E2E order lifecycle (real handlers + real Postgres + web client)', () 
     await customerText('ขอลิ้งค์ lalamove');
     expect(JSON.stringify(line.replies.at(-1)!.messages)).toContain(`ออเดอร์ ${x.code} ชำระแล้วค่ะ`);
 
-    // Dashboard: owner pastes the app's share text (label + link). Push budget for this order is used.
-    await db.query('update orders set push_count = 1, customer_last_seen_at = null where id = $1', [x.id]);
+    // Dashboard: owner pastes the app's share text (label + link). This order's 3 push slots are used up.
+    await db.query('update orders set push_count = 3, customer_last_seen_at = null where id = $1', [x.id]);
     let own = await ownerGet(x.id);
     const share = 'ติดตามสถานะการจัดส่งได้ที่: https://share.lalamove.com/?TH2611260001&lang=th_TH&sign=e2e';
     own = await web.ownerFetch<OwnerOrderView>(`/api/owner/orders/${x.id}/dispatch`, OWNER_TOKEN, { method: 'POST', body: { trackingUrl: share }, ifMatch: own.version });

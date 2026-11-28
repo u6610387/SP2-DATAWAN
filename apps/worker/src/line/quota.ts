@@ -7,9 +7,24 @@ import type { Config } from '../env';
 import type { Deps } from '../deps';
 import { bangkokMonthStart, daysLeftInMonth, nextBangkokMonthStart, startOfBangkokDay } from '../util/time';
 import type { LineMessage } from './api';
+import { patchOrder } from '../services/orders';
 
 export type PushPriority = 'P1' | 'P2';
-export type DeferReason = 'PRESENT' | 'QUOTA_SAVER' | 'WARNING_P2' | 'ORDER_CAP' | 'DAILY_BUDGET' | 'INACTIVE_USER';
+export type DeferReason =
+  | 'PRESENT' | 'QUOTA_SAVER' | 'WARNING_P2' | 'ORDER_CAP' | 'DAILY_BUDGET' | 'DAILY_RESERVE' | 'INACTIVE_USER' | 'ALREADY_SENT';
+
+/**
+ * The only pushes an order may use (one each, in lifecycle order): price quote, total to pay,
+ * Lalamove dispatched. Everything else (counter, hold, owner notes) reaches the customer through
+ * LIFF realtime and the free chat reply instead (CLAUDE.md §3.4, D2).
+ */
+export const LIFECYCLE_PUSHES = ['PRICE_READY', 'TOTAL_READY', 'TRACKING_LINK'] as const;
+export type LifecyclePush = (typeof LIFECYCLE_PUSHES)[number];
+/**
+ * When quota is tight the money and delivery pushes win: the price quote is P2 (skipped at the
+ * 80% warning and when today's budget is down to the reserve); total + tracking are P1.
+ */
+export const PUSH_PRIORITY: Readonly<Record<LifecyclePush, PushPriority>> = { PRICE_READY: 'P2', TOTAL_READY: 'P1', TRACKING_LINK: 'P1' };
 
 export function quotaMode(used: number, limit: number, cfg: Pick<Config, 'QUOTA_WARN_RATIO' | 'QUOTA_SAVER_RATIO'>): QuotaMode {
   if (limit <= 0) return 'NORMAL'; // 'none' type = unlimited (paid plans)
@@ -28,6 +43,10 @@ export function dailyBudgetRemaining(args: { used: number; limit: number; saverR
 
 export interface PushDecisionInput {
   priority: PushPriority;
+  /** This order already got a push for the same reason (re-quote, fee correction): never twice. */
+  alreadySent: boolean;
+  /** Today's pushes kept for P1 (total + tracking): a P2 push needs more than this left. */
+  dailyReserve: number;
   customerPresent: boolean;
   customerActive: boolean;
   mode: QuotaMode;
@@ -36,14 +55,16 @@ export interface PushDecisionInput {
   dailyRemaining: number;
 }
 
-/** Pure decision — order matters: presence → mode → per-order cap → daily budget. */
+/** Pure decision — order matters: active → once per reason → presence → mode → per-order cap → daily budget → P1 reserve. */
 export function decidePush(i: PushDecisionInput): { send: true } | { send: false; reason: DeferReason } {
   if (!i.customerActive) return { send: false, reason: 'INACTIVE_USER' };
+  if (i.alreadySent) return { send: false, reason: 'ALREADY_SENT' };
   if (i.customerPresent) return { send: false, reason: 'PRESENT' };
   if (i.mode === 'QUOTA_SAVER') return { send: false, reason: 'QUOTA_SAVER' };
   if (i.mode === 'WARNING' && i.priority !== 'P1') return { send: false, reason: 'WARNING_P2' };
   if (i.orderPushCount >= i.maxPerOrder) return { send: false, reason: 'ORDER_CAP' };
   if (i.dailyRemaining <= 0) return { send: false, reason: 'DAILY_BUDGET' };
+  if (i.priority === 'P2' && i.dailyRemaining <= i.dailyReserve) return { send: false, reason: 'DAILY_RESERVE' };
   return { send: true };
 }
 
@@ -77,14 +98,20 @@ export interface GuardedPushResult {
 
 export async function sendPushGuarded(
   deps: Deps,
-  args: { order: OrderRow; messages: LineMessage[]; priority: PushPriority; reason: string },
+  args: { order: OrderRow; messages: LineMessage[]; reason: LifecyclePush },
 ): Promise<GuardedPushResult> {
   const { order } = args;
+  const priority = PUSH_PRIORITY[args.reason];
   const now = deps.now();
-  const user = await deps.repo.getUser(order.user_id);
-  const status = await getQuotaStatus(deps);
+  const [user, status, pushEvents] = await Promise.all([
+    deps.repo.getUser(order.user_id),
+    getQuotaStatus(deps),
+    deps.repo.listPushEvents(order.id),
+  ]);
   const decision = decidePush({
-    priority: args.priority,
+    priority,
+    alreadySent: pushEvents.some((e) => e.event === 'PUSH_SENT' && (e.payload as { why?: string } | null)?.why === args.reason),
+    dailyReserve: deps.cfg.PUSH_DAILY_RESERVE_P1,
     customerPresent: isCustomerPresent(order, now, deps.cfg.LIFF_PRESENCE_SECONDS),
     customerActive: !!user?.is_active,
     mode: status.mode,
@@ -95,7 +122,7 @@ export async function sendPushGuarded(
 
   if (!decision.send || !user) {
     const reason = decision.send ? 'INACTIVE_USER' : decision.reason;
-    await deps.repo.insertEvent({ order_id: order.id, actor: 'system', event: 'PUSH_DEFERRED', payload: { reason, why: args.reason, priority: args.priority } });
+    await deps.repo.insertEvent({ order_id: order.id, actor: 'system', event: 'PUSH_DEFERRED', payload: { reason, why: args.reason, priority } });
     return { sent: false, deferredReason: reason, order };
   }
 
@@ -114,8 +141,10 @@ export async function sendPushGuarded(
     local_count: localCount,
     mode: quotaMode(Math.max(totalUsage, localCount), limit, deps.cfg),
   });
-  await deps.repo.insertEvent({ order_id: order.id, actor: 'system', event: 'PUSH_SENT', payload: { why: args.reason, priority: args.priority } });
-  const updated = (await deps.repo.updateOrder(order.id, order.version, { push_count: order.push_count + 1 })) ?? order;
+  await deps.repo.insertEvent({ order_id: order.id, actor: 'system', event: 'PUSH_SENT', payload: { why: args.reason, priority } });
+  // Versioned + broadcast (patchOrder): push_count bumps orders.version, so LIFF must hear about it
+  // or its next If-Match is stale (409 on the customer's next tap).
+  const updated = (await patchOrder(deps, order, { push_count: order.push_count + 1 })) ?? order;
   return { sent: true, order: updated };
 }
 

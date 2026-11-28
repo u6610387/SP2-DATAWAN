@@ -213,6 +213,7 @@ export const th: Dictionary = {
     deliveringTitle: 'กำลังจัดส่ง',
     trackLink: 'ติดตามการจัดส่ง',
     deliveredTitle: 'ส่งสำเร็จแล้ว ขอบคุณที่ใช้บริการค่ะ 🦐',
+    shopNoteTitle: '💬 ข้อความจากร้าน',
   },
   history: {
     title: 'ออเดอร์ของฉัน',

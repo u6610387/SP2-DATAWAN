@@ -218,6 +218,7 @@ export interface Dictionary {
     deliveringTitle: string;
     trackLink: string;
     deliveredTitle: string;
+    shopNoteTitle: string;
   };
   /** LIFF order history + one-tap reorder (/liff/orders). */
   history: {

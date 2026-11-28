@@ -107,6 +107,13 @@ function OrderRoom({ orderId, auth }: { orderId: string; auth: { idToken: string
 
       {actionError && <p className="rounded-xl bg-[var(--red-bg)] p-3 text-sm text-[var(--red)]">{actionError}</p>}
 
+      {order.shopNote && (
+        <Card>
+          <CardTitle>{t.liff.shopNoteTitle}</CardTitle>
+          <p className="mt-1 whitespace-pre-line text-sm">{order.shopNote.text}</p>
+        </Card>
+      )}
+
       {order.trackingUrl && <TrackingButton url={order.trackingUrl} t={t} />}
 
       {showRecipientCard(order) && (

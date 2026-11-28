@@ -22,7 +22,7 @@ describe('E2E happy path — 9 steps through the signed webhook (mock AI)', () =
     expect(order().status).toBe('AWAITING_PRICE');
     expect(h.notifier.alerts.at(-1)).toMatchObject({ kind: 'NEW_ORDER', code: 'A1', suggestedPriceSatang: 169000 }); // cost ฿1,350 × 1.25 = ฿1,687.50 → ฿1,690
 
-    // 3. Owner prices via LINE: margin shown, customer gets ONE guarded push (not present in LIFF)
+    // 3. Owner prices via LINE: margin shown, push 1 of 3 (price quote; not present in LIFF)
     await h.ownerText('A1 1850 กุ้งได้ 2.1 กก.');
     expect(order()).toMatchObject({ status: 'PRICE_QUOTED', product_price_satang: 185000, price_note: 'กุ้งได้ 2.1 กก.' });
     expect(h.line.lastReplyText()).toContain('✅ A1 ราคา ฿1,850 | ต้นทุน ฿1,350 | กำไร +฿500 (27%) 🟢');
@@ -35,14 +35,14 @@ describe('E2E happy path — 9 steps through the signed webhook (mock AI)', () =
     await h.ownerText('A1 ok');
     expect(order()).toMatchObject({ status: 'AWAITING_SHIPPING_FEE', product_price_satang: 170000 });
 
-    // 5–6. Shipping fee → total + payment window; Lalamove copy card for the owner; push capped
+    // 5–6. Shipping fee → total + payment window; Lalamove copy card for the owner; push 2 (total)
     await h.ownerText('A1 ship 120');
     expect(order()).toMatchObject({ status: 'AWAITING_PAYMENT', shipping_fee_satang: 12000, total_satang: 182000 });
     expect(order().payment_expires_at).toBe('2027-01-14T03:05:00.000Z'); // +45 min
     expect(h.line.lastReplyText()).toContain('Lalamove');
     expect(h.line.lastReplyText()).toContain('maps/search/?api=1\\u0026query=13.7234,100.4761'.replace('\\u0026', '&'));
-    expect(h.line.pushes).toHaveLength(1); // MAX_PUSH_PER_ORDER=1 → deferred
-    expect(h.repo.events.filter((e) => e.event === 'PUSH_DEFERRED').at(-1)?.payload).toMatchObject({ reason: 'ORDER_CAP' });
+    expect(h.line.pushes).toHaveLength(2); // push 2 of 3: total + PromptPay/slip card
+    expect(JSON.stringify(h.line.pushes[1]!.messages)).toContain('PromptPay');
     expect(buildPromptPayPayload(h.deps.cfg.PROMPTPAY_ID, order().total_satang!)).toContain('54071820.00');
 
     // 7. Slip in chat (fallback) → mock read → code check PASS → PAYMENT_REVIEW (NOT paid)
@@ -59,6 +59,10 @@ describe('E2E happy path — 9 steps through the signed webhook (mock AI)', () =
     // 8. Dispatch with tracking link
     await h.ownerText('A1 track https://share.lalamove.com/abc123');
     expect(order()).toMatchObject({ status: 'DELIVERING', tracking_url: 'https://share.lalamove.com/abc123' });
+    expect(h.line.pushes).toHaveLength(3); // push 3 of 3: Lalamove dispatched + tracking link
+    expect(JSON.stringify(h.line.pushes[2]!.messages)).toContain('https://share.lalamove.com/abc123');
+    // Exactly the 3 lifecycle pushes, once each and in order; the negotiation used none.
+    expect(h.repo.events.filter((e) => e.event === 'PUSH_SENT').map((e) => (e.payload as { why: string }).why)).toEqual(['PRICE_READY', 'TOTAL_READY', 'TRACKING_LINK']);
 
     // 9. Delivered → stock deducted, sell price history, active order cleared
     await h.ownerText('A1 done');
